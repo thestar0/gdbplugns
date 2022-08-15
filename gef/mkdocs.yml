@@ -1,49 +1,78 @@
 site_name: GEF - GDB Enhanced Features documentation
-theme: readthedocs
-pages:
-- [index.md, Home]
-- [config.md, Configuration]
-- [faq.md, Frequently Asked Questions]
-- [commands.md, Features]
-- [commands/aliases.md, Command aliases]
-- [commands/aslr.md, Command aslr]
-- [commands/assemble.md, Command assemble]
-- [commands/canary.md, Command canary]
-- [commands/capstone-disassemble.md, Command capstone-disassemble]
-- [commands/checksec.md, Command checksec]
-- [commands/config.md, Command config]
-- [commands/context.md, Command context]
-- [commands/dereference.md, Command dereference]
-- [commands/edit-flags.md, Command edit-flags]
-- [commands/elf-info.md, Command elf-info]
-- [commands/entry-break.md, Command entry-break]
-- [commands/format-string-helper.md, Command format-string-helper]
-- [commands/gef-remote.md, Command gef-remote]
-- [commands/heap.md, Command heap]
-- [commands/help.md, Command help]
-- [commands/hexdump.md, Command hexdump]
-- [commands/hijack-fd.md, Command hijack-fd]
-- [commands/ida-interact.md, Command ida-interact]
-- [commands/ksymaddr.md, Command ksymaddr]
-- [commands/nop.md, Command nop]
-- [commands/patch.md, Command patch]
-- [commands/pattern.md, Command pattern]
-- [commands/pcustom.md, Command pcustom]
-- [commands/process-status.md, Command process-status]
-- [commands/process-search.md, Command process-search]
-- [commands/registers.md, Command registers]
-- [commands/reset-cache.md, Command reset-cache]
-- [commands/retdec.md, Command retdec]
-- [commands/ropgadget.md, Command ropgadget]
-- [commands/ropper.md, Command ropper]
-- [commands/search-pattern.md, Command search-pattern]
-- [commands/set-permission.md, Command set-permission]
-- [commands/shellcode.md, Command shellcode]
-- [commands/theme.md, Command theme]
-- [commands/tmux-setup.md, Command tmux-setup]
-- [commands/trace-run.md, Command trace-run]
-- [commands/unicorn-emulate.md, Command unicorn-emulate]
-- [commands/vmmap.md, Command vmmap]
-- [commands/xfiles.md, Command xfiles]
-- [commands/xinfo.md, Command xinfo]
-- [commands/xor-memory.md, Command xor-memory]
+theme:
+  name: material
+  font:
+    text: Roboto
+    code: Roboto Mono
+  features:
+    - navigation.instant
+    - navigation.tabs
+
+
+nav:
+- Home: index.md
+- Showroom: screenshots.md
+- Setup:
+  - Installation: install.md
+  - Configuration: config.md
+  - Compatibility: compat.md
+- FAQ: faq.md
+- Hacking GEF:
+  - Testing: testing.md
+  - Write extensions: api.md
+  - API: api/gef.md
+- Commands:
+  - aliases: commands/aliases.md
+  - aslr: commands/aslr.md
+  - canary: commands/canary.md
+  - checksec: commands/checksec.md
+  - config: commands/config.md
+  - context: commands/context.md
+  - dereference: commands/dereference.md
+  - edit-flags: commands/edit-flags.md
+  - elf-info: commands/elf-info.md
+  - entry-break: commands/entry-break.md
+  - eval: commands/eval.md
+  - format-string-helper: commands/format-string-helper.md
+  - functions: commands/functions.md
+  - gef: commands/gef.md
+  - gef-remote: commands/gef-remote.md
+  - got: commands/got.md
+  - heap-analysis-helper: commands/heap-analysis-helper.md
+  - heap: commands/heap.md
+  - help: commands/help.md
+  - hexdump: commands/hexdump.md
+  - highlight: commands/highlight.md
+  - hijack-fd: commands/hijack-fd.md
+  - ksymaddr: commands/ksymaddr.md
+  - memory: commands/memory.md
+  - name-break: commands/name-break.md
+  - nop: commands/nop.md
+  - patch: commands/patch.md
+  - pattern: commands/pattern.md
+  - pcustom: commands/pcustom.md
+  - pie: commands/pie.md
+  - print-format: commands/print-format.md
+  - process-search: commands/process-search.md
+  - process-status: commands/process-status.md
+  - registers: commands/registers.md
+  - reset-cache: commands/reset-cache.md
+  - scan: commands/scan.md
+  - search-pattern: commands/search-pattern.md
+  - shellcode: commands/shellcode.md
+  - stub: commands/stub.md
+  - theme: commands/theme.md
+  - tmux-setup: commands/tmux-setup.md
+  - trace-run: commands/trace-run.md
+  - version: commands/version.md
+  - vmmap: commands/vmmap.md
+  - xfiles: commands/xfiles.md
+  - xinfo: commands/xinfo.md
+  - xor-memory: commands/xor-memory.md
+- Functions:
+  - base: functions/base.md
+  - bss: functions/bss.md
+  - got: functions/got.md
+  - heap: functions/heap.md
+  - stack: functions/stack.md
+- Deprecated: deprecated.md
