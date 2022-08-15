@@ -1,9 +1,4 @@
-#!/usr/bin/env python
-# -*- coding: utf-8 -*-
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-from __future__ import unicode_literals
+import re
 
 import gdb
 
@@ -13,6 +8,7 @@ import pwndbg.gdbutils
 import pwndbg.memoize
 from pwndbg.color import disable_colors
 from pwndbg.color import message
+from pwndbg.tips import get_tip_of_the_day
 
 funcs_list_str = ', '.join(message.notice('$' + f.name) for f in pwndbg.gdbutils.functions.functions)
 
@@ -24,17 +20,30 @@ hint_lines = (
 for line in hint_lines:
     print(message.prompt('pwndbg: ') + message.system(line))
 
-cur = (gdb.selected_inferior(), gdb.selected_thread())
+# noinspection PyPackageRequirements
+show_tip = pwndbg.config.Parameter('show-tips', True, 'whether to display the tip of the day on startup')
+
+cur = None
+
+
+def initial_hook(*a):
+    if show_tip and not pwndbg.decorators.first_prompt:
+        colored_tip = re.sub('`(.*?)`', lambda s: message.warn(s.group()[1:-1]), get_tip_of_the_day())
+        print(message.prompt('------- tip of the day') + message.system(' (disable with %s)' % message.notice('set show-tips off')) + message.prompt(' -------'))
+        print((colored_tip))
+    pwndbg.decorators.first_prompt = True
+
+    prompt_hook(a)
+    gdb.prompt_hook = prompt_hook
 
 
 def prompt_hook(*a):
     global cur
-    pwndbg.decorators.first_prompt = True
 
     new = (gdb.selected_inferior(), gdb.selected_thread())
 
     if cur != new:
-        pwndbg.events.after_reload(start=False)
+        pwndbg.events.after_reload(start=cur is None)
         cur = new
 
     if pwndbg.proc.alive and pwndbg.proc.thread_is_stopped:
@@ -59,7 +68,7 @@ def set_prompt():
 
 
 if pwndbg.events.before_prompt_event.is_real_event:
-    gdb.prompt_hook = prompt_hook
+    gdb.prompt_hook = initial_hook
 
 else:
     # Old GDBs doesn't have gdb.events.before_prompt, so we will emulate it using gdb.prompt_hook

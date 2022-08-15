@@ -3,10 +3,6 @@
 """
 A few helpers for making things print pretty-like.
 """
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-from __future__ import unicode_literals
 
 import fcntl
 import os
@@ -54,7 +50,7 @@ def banner(title, target=sys.stdin, width=None):
 
 def addrsz(address):
     address = int(address) & pwndbg.arch.ptrmask
-    return "%{}x".format(2*pwndbg.arch.ptrsize) % address
+    return "%#{}x".format(2*pwndbg.arch.ptrsize) % address
 
 def get_window_size(target=sys.stdin):
     fallback = (int(os.environ.get('LINES', 20)), int(os.environ.get('COLUMNS', 80)))

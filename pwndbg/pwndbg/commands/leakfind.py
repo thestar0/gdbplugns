@@ -3,20 +3,15 @@
 """
 Find a chain of leaks given some starting address.
 """
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-from __future__ import unicode_literals
 
 import argparse
-from queue import *
+import queue
 
 import gdb
 
 import pwndbg.color.chain as C
 import pwndbg.color.memory as M
 import pwndbg.color.message as message
-import pwndbg.color.theme as theme
 import pwndbg.commands
 import pwndbg.vmmap
 from pwndbg.chain import config_arrow_right
@@ -93,12 +88,12 @@ def leakfind(address=None, page_name=None, max_offset=0x40, max_depth=0x4, step=
     negative_offset = int(negative_offset)
     
     # The below map stores a map of child address->(parent_address,parent_start_address)
-    # In the above tuple, parent_address is the exact address with a pointer to the child adddress.
+    # In the above tuple, parent_address is the exact address with a pointer to the child address.
     # parent_start_address is an address that a previous address pointed to.
     # We need to store both so that we can nicely create our leak chain.
     visited_map = {}
     visited_set = {int(address)}
-    address_queue = Queue()
+    address_queue = queue.Queue()
     address_queue.put(int(address))
     depth = 0
     time_to_depth_increase = 0

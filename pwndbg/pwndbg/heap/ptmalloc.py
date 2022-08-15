@@ -1,22 +1,14 @@
-#!/usr/bin/env python
-# -*- coding: utf-8 -*-
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-from __future__ import unicode_literals
-
 from collections import OrderedDict
-from collections import namedtuple
 
 import gdb
 
 import pwndbg.color.memory as M
 import pwndbg.events
+import pwndbg.glibc
 import pwndbg.typeinfo
 from pwndbg.color import message
 from pwndbg.constants import ptmalloc
 from pwndbg.heap import heap_chain_limit
-
 
 # See https://sourceware.org/git/?p=glibc.git;a=blob;f=malloc/arena.c;h=37183cfb6ab5d0735cc82759626670aff3832cd0;hb=086ee48eaeaba871a2300daf85469671cc14c7e9#l30
 # and https://sourceware.org/git/?p=glibc.git;a=blob;f=malloc/malloc.c;h=f8e7250f70f6f26b0acb5901bcc4f6e39a8a52b2;hb=086ee48eaeaba871a2300daf85469671cc14c7e9#l869
@@ -32,7 +24,7 @@ def heap_for_ptr(ptr):
     return (ptr & ~(HEAP_MAX_SIZE-1))
 
 
-class Arena(object):
+class Arena:
     def __init__(self, addr, heaps):
         self.addr  = addr
         self.heaps = heaps
@@ -49,7 +41,7 @@ class Arena(object):
         return '\n'.join(res)
 
 
-class HeapInfo(object):
+class HeapInfo:
     def __init__(self, addr, first_chunk):
         self.addr        = addr
         self.first_chunk = first_chunk
@@ -304,7 +296,7 @@ class Heap(pwndbg.heap.heap.BaseHeap):
             "mchunk_prev_size": "prev_size",
         }
         val = self.malloc_chunk
-        chunk_keys = list(dict({renames.get(key, key): 0 for key in val.keys()}).keys())
+        chunk_keys = [renames[key] if key in renames else key for key in val.keys()]
 
         try:
             return chunk_keys.index(key) * pwndbg.arch.ptrsize
@@ -395,11 +387,12 @@ class Heap(pwndbg.heap.heap.BaseHeap):
         fd_offset    = self.chunk_key_offset('fd')
         num_fastbins = 7
         size         = pwndbg.arch.ptrsize * 2
+        safe_lnk = pwndbg.glibc.check_safe_linking()
 
         result = OrderedDict()
         for i in range(num_fastbins):
             size += pwndbg.arch.ptrsize * 2
-            chain = pwndbg.chain.get(int(fastbinsY[i]), offset=fd_offset, limit=heap_chain_limit)
+            chain = pwndbg.chain.get(int(fastbinsY[i]), offset=fd_offset, limit=heap_chain_limit, safe_linking=safe_lnk)
 
             result[size] = chain
 
@@ -417,6 +410,7 @@ class Heap(pwndbg.heap.heap.BaseHeap):
         entries = tcache['entries']
 
         num_tcachebins = entries.type.sizeof // entries.type.target().sizeof
+        safe_lnk = pwndbg.glibc.check_safe_linking()
 
         def tidx2usize(idx):
             """Tcache bin index to chunk size, following tidx2usize macro in glibc malloc.c"""
@@ -426,7 +420,7 @@ class Heap(pwndbg.heap.heap.BaseHeap):
         for i in range(num_tcachebins):
             size = self._request2size(tidx2usize(i))
             count = int(counts[i])
-            chain = pwndbg.chain.get(int(entries[i]), offset=self.tcache_next_offset, limit=heap_chain_limit)
+            chain = pwndbg.chain.get(int(entries[i]), offset=self.tcache_next_offset, limit=heap_chain_limit, safe_linking=safe_lnk)
 
             result[size] = (chain, count)
 
@@ -555,6 +549,8 @@ class Heap(pwndbg.heap.heap.BaseHeap):
 
     def is_initialized(self):
         addr = pwndbg.symbol.address('__libc_malloc_initialized')
+        if addr is None:
+            addr = pwndbg.symbol.address('__malloc_initialized')
         return pwndbg.memory.s32(addr) > 0
 
     def libc_has_debug_syms(self):

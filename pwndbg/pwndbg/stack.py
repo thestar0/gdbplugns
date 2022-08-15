@@ -7,10 +7,6 @@ a stack.
 Generally not needed, except under qemu-user and for when
 binaries do things to remap the stack (e.g. pwnies' postit).
 """
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-from __future__ import unicode_literals
 
 import gdb
 
@@ -42,15 +38,15 @@ def find(address):
             return stack
 
 
-def find_upper_stack_boundary(addr, max_pages=1024):
-    addr = pwndbg.memory.page_align(int(addr))
+def find_upper_stack_boundary(stack_ptr, max_pages=1024):
+    stack_ptr = pwndbg.memory.page_align(int(stack_ptr))
 
     # We can't get the stack size from stack layout and page fault on bare metal mode,
     # so we return current page as a walkaround.
     if not pwndbg.abi.linux:
-        return addr + pwndbg.memory.PAGE_SIZE
+        return stack_ptr + pwndbg.memory.PAGE_SIZE
 
-    return pwndbg.elf.find_elf_magic(addr, max_pages=max_pages, ret_addr_anyway=True)
+    return pwndbg.memory.find_upper_boundary(stack_ptr, max_pages)
 
 
 @pwndbg.events.stop

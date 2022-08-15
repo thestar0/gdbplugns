@@ -7,17 +7,11 @@ address ranges with various ELF files and permissions.
 The reason that we need robustness is that not every operating
 system has /proc/$$/maps, which backs 'info proc mapping'.
 """
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-from __future__ import unicode_literals
-
 import bisect
 import os
 import sys
 
 import gdb
-import six
 
 import pwndbg.abi
 import pwndbg.elf
@@ -39,7 +33,10 @@ explored_pages = []
 # List of custom pages that can be managed manually by vmmap_* commands family
 custom_pages = []
 
-@pwndbg.events.new_objfile
+
+kernel_vmmap_via_pt = pwndbg.config.Parameter('kernel-vmmap-via-page-tables', True, 'When on, it reads vmmap for kernels via page tables, otherwise uses QEMU kernel\'s `monitor info mem` command')
+
+@pwndbg.memoize.reset_on_start
 @pwndbg.memoize.reset_on_stop
 def get():
     if not pwndbg.proc.alive:
@@ -47,19 +44,28 @@ def get():
     pages = []
     pages.extend(proc_pid_maps())
 
-    if not pages and pwndbg.arch.current in ('i386', 'x86-64') and pwndbg.qemu.is_qemu():
-        pages.extend(monitor_info_mem())
+    if not pages and pwndbg.qemu.is_qemu_kernel() and pwndbg.arch.current in ('i386', 'x86-64', 'aarch64', 'riscv:rv64'):
+        if kernel_vmmap_via_pt:
+            pages.extend(kernel_vmmap_via_page_tables())
+        else:
+            pages.extend(kernel_vmmap_via_monitor_info_mem())
 
     if not pages:
-        # If debugee is launched from a symlink the debugee memory maps will be
+        # If debuggee is launched from a symlink the debuggee memory maps will be
         # labeled with symlink path while in normal scenario the /proc/pid/maps
-        # labels debugee memory maps with real path (after symlinks).
+        # labels debuggee memory maps with real path (after symlinks).
         # This is because the exe path in AUXV (and so `info auxv`) is before
         # following links.
         pages.extend(info_auxv())
 
-        if pages: pages.extend(info_sharedlibrary())
-        else:     pages.extend(info_files())
+        if pages:
+            pages.extend(info_sharedlibrary())
+        else:
+            if pwndbg.qemu.is_qemu():
+                return (
+                    pwndbg.memory.Page(0, pwndbg.arch.ptrmask, 7, 0, '[qemu]'),
+                )
+            pages.extend(info_files())
 
         pages.extend(pwndbg.stack.stacks.values())
 
@@ -118,13 +124,13 @@ def explore(address_maybe):
     return page
 
 # Automatically ensure that all registers are explored on each stop
-@pwndbg.events.stop
+#@pwndbg.events.stop
 def explore_registers():
     for regname in pwndbg.regs.common:
         find(pwndbg.regs[regname])
 
 
-@pwndbg.events.exit
+#@pwndbg.events.exit
 def clear_explored_pages():
     while explored_pages:
         explored_pages.pop()
@@ -149,6 +155,7 @@ def clear_custom_page():
     pwndbg.memoize.reset()
 
 
+@pwndbg.memoize.reset_on_start
 @pwndbg.memoize.reset_on_stop
 def proc_pid_maps():
     """
@@ -200,17 +207,18 @@ def proc_pid_maps():
     else:
         return tuple()
 
-    if six.PY3:
-        data = data.decode()
+    data = data.decode()
 
     pages = []
     for line in data.splitlines():
         maps, perm, offset, dev, inode_objfile = line.split(None, 4)
 
-        try:    inode, objfile = inode_objfile.split(None, 1)
-        except: objfile = ''
-
         start, stop = maps.split('-')
+        
+        try:
+            inode, objfile = inode_objfile.split(None, 1)
+        except:
+            objfile = '[anon_' + start[:-3] + ']'
 
         start  = int(start, 16)
         stop   = int(stop, 16)
@@ -228,21 +236,47 @@ def proc_pid_maps():
     return tuple(pages)
 
 @pwndbg.memoize.reset_on_stop
-def monitor_info_mem():
-    # NOTE: This works only on X86/X64/RISC-V
-    # See: https://github.com/pwndbg/pwndbg/pull/685
-    # (TODO: revisit with future QEMU versions)
-    #
+def kernel_vmmap_via_page_tables():
+    import pt
+    p = pt.PageTableDump()
+    p.lazy_init()
+    pages = p.backend.parse_tables(p.cache, p.parser.parse_args(''))
+
+    retpages = []
+
+    for page in pages:
+        start = page.va
+        size = page.page_size
+        flags = 4 # IMPLY ALWAYS READ
+        if page.pwndbg_is_writeable(): flags |= 2
+        if page.pwndbg_is_executable(): flags |= 1
+        retpages.append(pwndbg.memory.Page(start, size, flags, 0, '<pt>'))
+    return tuple(retpages)
+
+
+def kernel_vmmap_via_monitor_info_mem():
+    """
+    Returns Linux memory maps information by parsing `monitor info mem` output
+    from QEMU kernel GDB stub.
+    Works only on X86/X64/RISC-V as this is what QEMU supports.
+
+    Consider using the `kernel_vmmap_via_page_tables` method
+    as it is probably more reliable/better.
+    
+    See also: https://github.com/pwndbg/pwndbg/pull/685
+    (TODO: revisit with future QEMU versions)
+
+    # Example output from the command:
     # pwndbg> monitor info mem
     # ffff903580000000-ffff903580099000 0000000000099000 -rw
     # ffff903580099000-ffff90358009b000 0000000000002000 -r-
     # ffff90358009b000-ffff903582200000 0000000002165000 -rw
     # ffff903582200000-ffff903582803000 0000000000603000 -r-
+    """
     try:
         lines = gdb.execute('monitor info mem', to_string=True).splitlines()
     except gdb.error:
         # Likely a `gdb.error: "monitor" command not supported by this target.`
-        # TODO: add debug logging
         return tuple()
 
     # Handle disabled PG
@@ -429,31 +463,23 @@ def find_boundaries(addr, name='', min=0):
 
     return pwndbg.memory.Page(start, end-start, 4, 0, name)
 
-aslr = False
-
-@pwndbg.events.new_objfile
-@pwndbg.memoize.while_running
 def check_aslr():
-    vmmap = sys.modules[__name__]
-    vmmap.aslr = False
+    """
+    Detects the ASLR status. Returns True, False or None.
 
-    # Check to see if ASLR is disabled on the system.
-    # if not pwndbg.remote.is_remote():
-    system_aslr = True
-    data        = b''
-
+    None is returned when we can't detect ASLR.
+    """
     # QEMU does not support this concept.
-    if pwndbg.qemu.is_qemu_usermode():
-        return vmmap.aslr
+    if pwndbg.qemu.is_qemu():
+        return None, 'Could not detect ASLR on QEMU targets'
 
     # Systemwide ASLR is disabled
     try:
         data = pwndbg.file.get('/proc/sys/kernel/randomize_va_space')
         if b'0' in data:
-            vmmap.aslr = False
-            return vmmap.aslr
+            return False, 'kernel.randomize_va_space == 0'
     except Exception as e:
-        print("Could not check ASLR: Couldn't get randomize_va_space")
+        print("Could not check ASLR: can't read randomize_va_space")
         pass
 
     # Check the personality of the process
@@ -461,11 +487,9 @@ def check_aslr():
         try:
             data = pwndbg.file.get('/proc/%i/personality' % pwndbg.proc.pid)
             personality = int(data, 16)
-            if personality & 0x40000 == 0:
-                vmmap.aslr = True
-            return vmmap.aslr
+            return (personality & 0x40000 == 0), 'read status from process\' personality'
         except:
-            print("Could not check ASLR: Couldn't get personality")
+            print("Could not check ASLR: can't read process' personality")
             pass
 
     # Just go with whatever GDB says it did.
@@ -473,10 +497,7 @@ def check_aslr():
     # This should usually be identical to the above, but we may not have
     # access to procfs.
     output = gdb.execute('show disable-randomization', to_string=True)
-    if "is off." in output:
-        vmmap.aslr = True
-
-    return vmmap.aslr
+    return ("is off." in output), 'show disable-randomization'
 
 @pwndbg.events.cont
 def mark_pc_as_executable():

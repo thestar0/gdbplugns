@@ -1,8 +1,3 @@
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-from __future__ import unicode_literals
-
 import tests
 from pwndbg.commands.nearpc import emulate
 from pwndbg.commands.nearpc import nearpc
@@ -19,8 +14,8 @@ def test_emulate_disasm(start_binary):
     """
     start_binary(EMULATE_DISASM_BINARY)
 
-    assert emulate(to_string=True) == [
-        ' ► 0x400080 <_start>    jmp    label                         <0x400083>',
+    disasm_with_emu_0x400080 = [
+        ' ► 0x400080 <_start>    jmp    label                      <label>',
         '    ↓',
         '   0x400083 <label>     nop    ',
         '   0x400084             add    byte ptr [rax], al',
@@ -34,8 +29,8 @@ def test_emulate_disasm(start_binary):
         '   0x400094             add    byte ptr [rax], al'
     ]
 
-    disasm_without_emu = [
-        ' ► 0x400080 <_start>      jmp    label                         <0x400083>',
+    disasm_without_emu_0x400080 = [
+        ' ► 0x400080 <_start>      jmp    label                      <label>',
         ' ',
         '   0x400082 <_start+2>    nop    ',
         '   0x400083 <label>       nop    ',
@@ -49,16 +44,14 @@ def test_emulate_disasm(start_binary):
         '   0x400092               add    byte ptr [rax], al'
     ]
 
-    assert nearpc(to_string=True) == disasm_without_emu
-    assert emulate(to_string=True, emulate=False) == disasm_without_emu
-    assert pdisass(to_string=True) == disasm_without_emu
-    assert u(to_string=True) == disasm_without_emu
+    compare_output_emu(disasm_with_emu_0x400080)
+    compare_output_without_emu(disasm_without_emu_0x400080)
 
 
 def test_emulate_disasm_loop(start_binary):
     start_binary(EMULATE_DISASM_LOOP_BINARY)
 
-    assert emulate(to_string=True) == [
+    disasm_with_emu_0x400080 = [
         ' ► 0x400080 <_start>       movabs rsi, string                   <0x400094>',
         '   0x40008a <_start+10>    mov    rdi, rsp',
         '   0x40008d <_start+13>    mov    ecx, 3',
@@ -72,10 +65,10 @@ def test_emulate_disasm_loop(start_binary):
         '   0x400094 <string>       xor    dword ptr [rdx], esi',
         '   0x400096 <string+2>     xor    esi, dword ptr [rsi]',
         '   0x40009d                add    byte ptr [rax], al',
-        '   0x40009f                add    byte ptr [rax], al'
+        '   0x40009f                add    byte ptr [rax], al',
     ]
 
-    disasm_without_emu = [
+    disasm_without_emu_0x400080 = [
         ' ► 0x400080 <_start>       movabs rsi, string                   <0x400094>',
         '   0x40008a <_start+10>    mov    rdi, rsp',
         '   0x40008d <_start+13>    mov    ecx, 3',
@@ -86,10 +79,19 @@ def test_emulate_disasm_loop(start_binary):
         '   0x40009f                add    byte ptr [rax], al',
         '   0x4000a1                add    byte ptr [rax], al',
         '   0x4000a3                add    byte ptr [rax], al',
-        '   0x4000a5                add    byte ptr [rax], al'
+        '   0x4000a5                add    byte ptr [rax], al',
     ]
 
-    assert nearpc(to_string=True) == disasm_without_emu
-    assert emulate(to_string=True, emulate=False) == disasm_without_emu
-    assert pdisass(to_string=True) == disasm_without_emu
-    assert u(to_string=True) == disasm_without_emu
+    compare_output_emu(disasm_with_emu_0x400080)
+    compare_output_without_emu(disasm_without_emu_0x400080)
+
+
+def compare_output_emu(emu_0x400080):
+    assert emulate(to_string=True) == emu_0x400080
+
+
+def compare_output_without_emu(emu_0x400080):
+    assert nearpc(to_string=True) == emu_0x400080
+    assert emulate(to_string=True, emulate=False) == emu_0x400080
+    assert pdisass(to_string=True) == emu_0x400080
+    assert u(to_string=True) == emu_0x400080

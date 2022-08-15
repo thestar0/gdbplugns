@@ -1,10 +1,3 @@
-#!/usr/bin/env python
-# -*- coding: utf-8 -*-
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-from __future__ import unicode_literals
-
 import pwndbg.color.theme as theme
 import pwndbg.config as config
 from pwndbg.color import generateColorFunction
@@ -16,6 +9,9 @@ config_special   = theme.ColoredParameter('hexdump-special-color', 'yellow', 'co
 config_offset    = theme.ColoredParameter('hexdump-offset-color', 'none', 'color for hexdump command (offset label)')
 config_address   = theme.ColoredParameter('hexdump-address-color', 'none', 'color for hexdump command (address label)')
 config_separator = theme.ColoredParameter('hexdump-separator-color', 'none', 'color for hexdump command (group separator)')
+config_highlight_group_lsb = theme.Parameter('hexdump-highlight-group-lsb', 'underline',
+                                             'highlight LSB of each group. Applies only if hexdump-adjust-group-endianess'
+                                             ' actually changes byte order.')
 
 def normal(x):
     return generateColorFunction(config.hexdump_normal_color)(x)
@@ -37,3 +33,6 @@ def address(x):
 
 def separator(x):
     return generateColorFunction(config.hexdump_separator_color)(x)
+
+def highlight_group_lsb(x):
+    return generateColorFunction(config.hexdump_highlight_group_lsb)(x)

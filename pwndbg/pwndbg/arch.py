@@ -1,10 +1,5 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-from __future__ import unicode_literals
-
 import struct
 import sys
 
@@ -12,7 +7,6 @@ import gdb
 from capstone import *
 
 import pwndbg.events
-import pwndbg.memoize
 import pwndbg.regs
 import pwndbg.typeinfo
 
@@ -25,8 +19,17 @@ fmt     = '=I'
 native_endian = str(sys.byteorder)
 
 
-def fix_arch(arch):
-    for match in ['x86-64', 'i386', 'mips', 'powerpc', 'sparc', 'aarch64']:
+def _get_arch():
+    not_exactly_arch = False
+
+    if pwndbg.proc.alive:
+        arch = gdb.newest_frame().architecture().name()
+    else:
+        arch = gdb.execute("show architecture", to_string=True).strip()
+        not_exactly_arch = True
+
+    # Below, we fix the fetched architecture
+    for match in ('x86-64', 'i386', 'aarch64', 'mips', 'powerpc', 'sparc'):
         if match in arch:
             return match
 
@@ -34,23 +37,20 @@ def fix_arch(arch):
     if 'arm' in arch:
         return 'armcm' if '-m' in arch else 'arm'
 
+    if not_exactly_arch:
+        raise RuntimeError("Could not deduce architecture from: %s" % arch)
+
     return arch
 
+
+
 @pwndbg.events.start
+@pwndbg.events.stop
 @pwndbg.events.new_objfile
 def update():
     m = sys.modules[__name__]
 
-    # GDB 7.7 (Ubuntu Trusty) does not like selected_frame() when EBP/RBP
-    # is not mapped / pounts to an invalid address.
-    #
-    # As a work-around for Trusty users, handle the exception and bail.
-    # This may lead to inaccurate results, but there's not much to be done.
-    try:
-        m.current = fix_arch(gdb.newest_frame().architecture().name())
-    except Exception:
-        return
-
+    m.current = _get_arch()
     m.ptrsize = pwndbg.typeinfo.ptrsize
     m.ptrmask = (1 << 8*pwndbg.typeinfo.ptrsize)-1
 
@@ -65,10 +65,6 @@ def update():
     (8, 'little'): '<Q',
     (8, 'big'):    '>Q',
     }.get((m.ptrsize, m.endian))
-
-    # Work around Python 2.7.6 struct.pack / unicode incompatibility
-    # See https://github.com/pwndbg/pwndbg/pull/336 for more information.
-    m.fmt = str(m.fmt)
 
     # Attempt to detect the qemu-user binary name
     if m.current == 'arm' and m.endian == 'big':

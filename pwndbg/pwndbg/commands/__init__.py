@@ -1,18 +1,13 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-from __future__ import unicode_literals
-
 import argparse
 import functools
 
 import gdb
-import six
 
 import pwndbg.chain
 import pwndbg.color
+import pwndbg.color.message as message
 import pwndbg.enhance
 import pwndbg.exception
 import pwndbg.hexdump
@@ -215,7 +210,10 @@ def OnlyWithFile(function):
         if pwndbg.proc.exe:
             return function(*a, **kw)
         else:
-            print("%s: There is no file loaded." % function.__name__)
+            if pwndbg.qemu.is_qemu():
+                print(message.error("Could not determine the target binary on QEMU."))
+            else:
+                print(message.error("%s: There is no file loaded." % function.__name__))
 
     return _OnlyWithFile
 
@@ -289,7 +287,15 @@ class _ArgparsedCommand(Command):
             self.parser.prog = function.__name__
         else:
             self.parser.prog = command_name
-        self.__doc__ = function.__doc__ = self.parser.description.strip()
+        
+        # TODO/FIXME: Can we also append the generated positional args?
+        # E.g. "-f --flag  This does something"
+        doc = self.parser.description.strip()
+        if self.parser.epilog:
+            doc += '\n' + self.parser.epilog
+
+        self.__doc__ = function.__doc__ = doc
+
         super(_ArgparsedCommand, self).__init__(function, command_name=command_name, *a, **kw)
 
     def split_args(self, argument):
@@ -297,13 +303,13 @@ class _ArgparsedCommand(Command):
         return tuple(), vars(self.parser.parse_args(argv))
 
 
-class ArgparsedCommand(object):
+class ArgparsedCommand:
     """Adds documentation and offloads parsing for a Command via argparse"""
     def __init__(self, parser_or_desc, aliases=[]):
         """
         :param parser_or_desc: `argparse.ArgumentParser` instance or `str`
         """
-        if isinstance(parser_or_desc, six.string_types):
+        if isinstance(parser_or_desc, str):
             self.parser = argparse.ArgumentParser(description=parser_or_desc)
         else:
             self.parser = parser_or_desc
@@ -323,6 +329,11 @@ class ArgparsedCommand(object):
             _ArgparsedCommand(self.parser, function, alias)
         return _ArgparsedCommand(self.parser, function)
 
+# We use a 64-bit max value literal here instead of pwndbg.arch.current
+# as realistically its ok to pull off the biggest possible type here
+# We cache its GDB value type which is 'unsigned long long'
+_mask = 0xffffffffFFFFFFFF
+_mask_val_type = gdb.Value(_mask).type
 
 def sloppy_gdb_parse(s):
     """
@@ -335,6 +346,34 @@ def sloppy_gdb_parse(s):
     :return: Whatever gdb.parse_and_eval returns or string.
     """
     try:
-        return gdb.parse_and_eval(s)
+        val = gdb.parse_and_eval(s)
+        # We can't just return int(val) because GDB may return:
+        # "Python Exception <class 'gdb.error'> Cannot convert value to long."
+        # e.g. for:
+        # pwndbg> pi int(gdb.parse_and_eval('__libc_start_main'))
+        #
+        # Here, the _mask_val.type should be `unsigned long long`
+        return int(val.cast(_mask_val_type))
     except (TypeError, gdb.error):
         return s
+
+def AddressExpr(s):
+    """
+    Parses an address expression. Returns an int.
+    """
+    val = sloppy_gdb_parse(s)
+
+    if not isinstance(val, int):
+        raise argparse.ArgumentError('Incorrect address (or GDB expression): %s' % s)
+
+    return val
+
+def HexOrAddressExpr(s):
+    """
+    Parses string as hexadecimal int or an address expression. Returns an int.
+    (e.g. '1234' will return 0x1234)
+    """
+    try:
+        return int(s, 16)
+    except ValueError:
+        return AddressExpr(s)

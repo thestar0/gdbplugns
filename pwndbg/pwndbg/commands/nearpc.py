@@ -1,12 +1,4 @@
-#!/usr/bin/env python
-# -*- coding: utf-8 -*-
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-from __future__ import unicode_literals
-
 import argparse
-import codecs
 
 import gdb
 from capstone import *
@@ -17,6 +9,7 @@ import pwndbg.color.context as C
 import pwndbg.color.disasm as D
 import pwndbg.color.nearpc as N
 import pwndbg.color.theme
+import pwndbg.commands.comments
 import pwndbg.config
 import pwndbg.disasm
 import pwndbg.functions
@@ -42,7 +35,7 @@ nearpc_lines = pwndbg.config.Parameter('nearpc-lines', 10, 'number of additional
 show_args = pwndbg.config.Parameter('nearpc-show-args', True, 'show call arguments below instruction')
 
 parser = argparse.ArgumentParser(description='''Disassemble near a specified address.''')
-parser.add_argument("pc", type=int, nargs="?", default=None, help="Address to dissassemble near.")
+parser.add_argument("pc", type=int, nargs="?", default=None, help="Address to disassemble near.")
 parser.add_argument("lines", type=int, nargs="?", default=None, help="Number of lines to show on either side of the address.")
 #parser.add_argument("to_string", type=bool, nargs="?", default=False, help="Whether to print it or not.") #TODO make sure this should not be exposed
 parser.add_argument("emulate", type=bool, nargs="?", default=False, help="Whether to emulate instructions to find the next ones or just linearly disassemble.")
@@ -59,6 +52,9 @@ def nearpc(pc=None, lines=None, to_string=False, emulate=False):
         pc = nearpc.next_pc
 
     result = []
+
+    if pc is not None:
+        pc = gdb.Value(pc).cast(pwndbg.typeinfo.pvoid)
 
     # Fix the case where we only have one argument, and
     # it's a small value.
@@ -164,14 +160,20 @@ def nearpc(pc=None, lines=None, to_string=False, emulate=False):
         if instr.address == pc:
             syscall_name = pwndbg.arguments.get_syscall_name(instr)
             if syscall_name:
-                line += ' <%s>' % N.syscall_name(syscall_name)
+                line += ' <%s>' % N.syscall_name('SYS_' + syscall_name)
+
+        # For Comment Function
+        try:
+            line += " "*10 + C.comment(pwndbg.commands.comments.file_lists[pwndbg.proc.exe][hex(instr.address)])
+        except:
+            pass
 
         result.append(line)
 
         # For call instructions, attempt to resolve the target and
         # determine the number of arguments.
         if show_args:
-            result.extend(['%8s%s' % ('', arg) for arg in pwndbg.arguments.format_args(instruction=instr)])
+            result.extend(('%8s%s' % ('', arg) for arg in pwndbg.arguments.format_args(instruction=instr)))
 
         prev = instr
 

@@ -8,10 +8,6 @@ Currently prints out code, integers, or strings, in a best-effort manner
 dependent on page permissions, the contents of the data, and any
 supplemental information sources (e.g. active IDA Pro connection).
 """
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-from __future__ import unicode_literals
 
 import string
 
@@ -54,7 +50,7 @@ def int_str(value):
 
 
 # @pwndbg.memoize.reset_on_stop
-def enhance(value, code = True):
+def enhance(value, code = True, safe_linking = False):
     """
     Given the last pointer in a chain, attempt to characterize
 
@@ -68,6 +64,7 @@ def enhance(value, code = True):
     Arguments:
         value(obj): Value to enhance
         code(bool): Hint that indicates the value may be an instruction
+        safe_linking(bool): Whether this chain use safe-linking
     """
     value = int(value)
 
@@ -110,7 +107,13 @@ def enhance(value, code = True):
     if szval:
         szval = E.string(repr(szval))
 
+    # Fix for case when we can't read the end address anyway (#946)
+    if value + pwndbg.arch.ptrsize > page.end:
+        return E.integer(int_str(value))
+
     intval  = int(pwndbg.memory.poi(pwndbg.typeinfo.pvoid, value))
+    if safe_linking:
+        intval ^= value >> 12
     intval0 = intval
     if 0 <= intval < 10:
         intval = E.integer(str(intval))

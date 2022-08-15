@@ -1,10 +1,3 @@
-#!/usr/bin/env python
-# -*- coding: utf-8 -*-
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-from __future__ import unicode_literals
-
 import os
 import re
 
@@ -78,7 +71,7 @@ def generateColorFunction(config):
     return function
 
 def strip(x):
-    return re.sub('\x1b\\[\d+m', '', x)
+    return re.sub('\x1b\\[[\d;]+m', '', x)
 
 def terminateWith(x, color):
     return re.sub('\x1b\\[0m', NORMAL + color, x)

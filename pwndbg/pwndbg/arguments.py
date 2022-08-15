@@ -4,11 +4,6 @@
 Allows describing functions, specifically enumerating arguments which
 may be passed in a combination of registers and stack values.
 """
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-from __future__ import unicode_literals
-
 import gdb
 from capstone import CS_GRP_CALL
 from capstone import CS_GRP_INT
@@ -59,14 +54,16 @@ def get_syscall_name(instruction):
     if CS_GRP_INT not in instruction.groups:
         return None
 
-    try:
-        abi     = pwndbg.abi.ABI.syscall()
-        syscall = getattr(pwndbg.regs, abi.syscall_register)
-        name    = pwndbg.constants.syscall(syscall)
+    syscall_register = pwndbg.abi.ABI.syscall().syscall_register
 
-        return 'SYS_' + name
-    except:
-        return None
+    # If we are on x86/x64, return no syscall name for other instructions than syscall and int 0x80
+    if syscall_register in ('eax', 'rax'):
+        mnemonic = instruction.mnemonic
+        if not (mnemonic == 'syscall' or (mnemonic == 'int' and instruction.op_str == '0x80')):
+            return None
+
+    syscall_number = getattr(pwndbg.regs, syscall_register)
+    return pwndbg.constants.syscall(syscall_number) or '<unk_%d>' % syscall_number
 
 
 def get(instruction):
@@ -81,12 +78,12 @@ def get(instruction):
     if instruction.address != pwndbg.regs.pc:
         return []
 
-    try:
-        abi = pwndbg.abi.ABI.default()
-    except KeyError:
-        return []
-
     if CS_GRP_CALL in instruction.groups:
+        try:
+            abi = pwndbg.abi.ABI.default()
+        except KeyError:
+            return []
+
         # Not sure of any OS which allows multiple operands on
         # a call instruction.
         assert len(instruction.operands) == 1
@@ -101,11 +98,12 @@ def get(instruction):
             return []
     elif CS_GRP_INT in instruction.groups:
         # Get the syscall number and name
+        name = get_syscall_name(instruction)
         abi = pwndbg.abi.ABI.syscall()
+        target = None
 
-        target  = None
-        syscall = getattr(pwndbg.regs, abi.syscall_register)
-        name    = pwndbg.constants.syscall(syscall)
+        if name is None:
+            return []
     else:
         return []
 
@@ -152,7 +150,7 @@ def get(instruction):
     if func:
         args = func.args
     else:
-        args = [pwndbg.functions.Argument('int', 0, argname(i, abi)) for i in range(n_args_default)]
+        args = (pwndbg.functions.Argument('int', 0, argname(i, abi)) for i in range(n_args_default))
 
     for i, arg in enumerate(args):
         result.append((arg, argument(i, abi)))
@@ -206,5 +204,12 @@ def format_args(instruction):
     for arg, value in get(instruction):
         code   = arg.type != 'char'
         pretty = pwndbg.chain.format(value, code=code)
+
+        # Enhance args display
+        if arg.name == 'fd' and isinstance(value, int):
+            path = pwndbg.file.readlink('/proc/%d/fd/%d' % (pwndbg.proc.pid, value))
+            if path:
+                pretty += ' (%s)' % path
+
         result.append('%-10s %s' % (N.argument(arg.name) + ':', pretty))
     return result

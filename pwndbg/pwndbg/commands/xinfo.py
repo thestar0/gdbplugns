@@ -1,12 +1,4 @@
-#!/usr/bin/env python
-# -*- coding: utf-8 -*-
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-from __future__ import unicode_literals
-
 import argparse
-import subprocess
 
 import gdb
 
@@ -32,7 +24,7 @@ def print_line(name, addr, first, second, op, width = 20):
 
 def xinfo_stack(page, addr):
     # If it's a stack address, print offsets to top and bottom of stack, as
-    # well as offsets to current stack and base pointer (if used by debugee)
+    # well as offsets to current stack and base pointer (if used by debuggee)
 
     sp = pwndbg.regs.sp
     frame = pwndbg.regs[pwndbg.regs.frame]
@@ -101,6 +93,7 @@ def xinfo_default(page, addr):
 @pwndbg.commands.ArgparsedCommand(parser)
 @pwndbg.commands.OnlyWhenRunning
 def xinfo(address=None):
+    address = address.cast(pwndbg.typeinfo.pvoid)  # Fixes issues with function ptrs (xinfo malloc)
     addr = int(address)
     addr &= pwndbg.arch.ptrmask
 

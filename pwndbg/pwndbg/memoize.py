@@ -5,21 +5,25 @@ Caches return values until some event in the inferior happens,
 e.g. execution stops because of a SIGINT or breakpoint, or a
 new library/objfile are loaded, etc.
 """
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-from __future__ import unicode_literals
 
-import collections
 import functools
 import sys
 
+import gdb
+
 import pwndbg.events
+
+try:
+    # Python >= 3.10
+    from collections.abc import Hashable
+except ImportError:
+    # Python < 3.10
+    from collections import Hashable
 
 debug = False
 
 
-class memoize(object):
+class memoize:
     """
     Base memoization class. Do not use directly. Instead use one of classes defined below.
     """
@@ -34,7 +38,7 @@ class memoize(object):
     def __call__(self, *args, **kwargs):
         how = None
 
-        if not isinstance(args, collections.Hashable):
+        if not isinstance(args, Hashable):
             print("Cannot memoize %r!", file=sys.stderr)
             how   = "Not memoizeable!"
             value = self.func(*args)
@@ -49,7 +53,7 @@ class memoize(object):
             self.cache[args] = value
 
             if isinstance(value, list):
-                print("Shouldnt cache mutable types! %r" % self.func.__name__)
+                print("Should not cache mutable types! %r" % self.func.__name__)
 
         if debug:
             print("%s: %s(%r)" % (how, self, args))
@@ -140,7 +144,6 @@ class reset_on_start(memoize):
     kind   = 'start'
 
     @staticmethod
-    @pwndbg.events.stop
     @pwndbg.events.start
     def __reset_on_start():
         for obj in reset_on_start.caches:

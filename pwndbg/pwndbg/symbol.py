@@ -7,11 +7,6 @@ vice-versa.
 Uses IDA when available if there isn't sufficient symbol
 information available.
 """
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-from __future__ import unicode_literals
-
 import os
 import re
 import shutil
@@ -22,7 +17,6 @@ import elftools.elf.constants
 import elftools.elf.elffile
 import elftools.elf.segments
 import gdb
-import six
 
 import pwndbg.arch
 import pwndbg.elf
@@ -196,8 +190,8 @@ def get(address, gdb_only=False):
     return ''
 
 @pwndbg.memoize.reset_on_objfile
-def address(symbol):
-    if isinstance(symbol, six.integer_types):
+def address(symbol, allow_unmapped=False):
+    if isinstance(symbol, int):
         return symbol
 
     try:
@@ -221,7 +215,7 @@ def address(symbol):
         # pwndbg> info address tcache
         # Symbol "tcache" is a thread-local variable at offset 0x40
         # in the thread-local storage for `/lib/x86_64-linux-gnu/libc.so.6'.
-        if not pwndbg.vmmap.find(address):
+        if not allow_unmapped and not pwndbg.vmmap.find(address):
             return None
 
         return address
@@ -264,9 +258,37 @@ def add_main_exe_to_symbols():
     path = mmap.objfile
     if path and (pwndbg.arch.endian == pwndbg.arch.native_endian):
         try:
-            gdb.execute('add-symbol-file %s %#x' % (path, addr), from_tty=False, to_string=True)
+            gdb.execute('add-symbol-file %s' % (path,), from_tty=False, to_string=True)
         except gdb.error:
             pass
+
+
+@pwndbg.memoize.reset_on_stop
+@pwndbg.memoize.reset_on_start
+def selected_frame_source_absolute_filename():
+    """
+    Retrieve the symbol table’s source absolute file name from the selected frame.
+
+    In case of missing symbol table or frame information, None is returned.
+    """
+    try:
+        frame = gdb.selected_frame()
+    except gdb.error:
+        return None
+
+    if not frame:
+        return None
+
+    sal = frame.find_sal()
+    if not sal:
+        return None
+
+    symtab = sal.symtab
+    if not symtab:
+        return None
+
+    return symtab.fullname()
+
 
 if '/usr/lib/debug' not in get_directory():
     set_directory(get_directory() + ':/usr/lib/debug')

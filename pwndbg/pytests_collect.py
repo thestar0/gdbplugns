@@ -1,7 +1,3 @@
-from __future__ import print_function
-from __future__ import division
-from __future__ import absolute_import
-from __future__ import unicode_literals
 
 import os
 import sys
@@ -26,7 +22,12 @@ class CollectTestFunctionNames:
 
 
 collector = CollectTestFunctionNames()
-pytest.main(['--collect-only', TESTS_PATH], plugins=[collector])
+rv = pytest.main(['--collect-only', TESTS_PATH], plugins=[collector])
+
+if rv == pytest.ExitCode.INTERRUPTED:
+    print("Failed to collect all tests, perhaps there is a syntax error in one of test files?")
+    sys.exit(1)
+
 
 print('Listing collected tests:')
 for nodeid in collector.collected:

@@ -1,15 +1,5 @@
-#!/usr/bin/env python
-# -*- coding: utf-8 -*-
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-from __future__ import unicode_literals
-
 import argparse
 import ast
-import codecs
-import ctypes
-import json
 import os
 import sys
 from collections import defaultdict
@@ -30,6 +20,7 @@ import pwndbg.commands.telescope
 import pwndbg.config
 import pwndbg.disasm
 import pwndbg.events
+import pwndbg.ghidra
 import pwndbg.ida
 import pwndbg.regs
 import pwndbg.symbol
@@ -75,7 +66,7 @@ def validate_context_sections():
             config_context_sections.revert_default()
             return
 
-class StdOutput(object):
+class StdOutput:
     """A context manager wrapper to give stdout"""
     def __enter__(self):
         return sys.stdout
@@ -86,7 +77,7 @@ class StdOutput(object):
     def __eq__(self, other):
         return type(other) is StdOutput
 
-class FileOutput(object):
+class FileOutput:
     """A context manager wrapper to reopen files on enter"""
     def __init__(self, *args):
         self.args = args
@@ -101,7 +92,7 @@ class FileOutput(object):
     def __eq__(self, other):
         return self.args == other.args
 
-class CallOutput(object):
+class CallOutput:
     """A context manager which calls a function on write"""
     def __init__(self, func):
         self.func = func
@@ -128,7 +119,7 @@ class CallOutput(object):
 
 
 def output(section):
-    """Creates a context manager corresponding to configured context ouput"""
+    """Creates a context manager corresponding to configured context output"""
     target = outputs.get(section, str(config_output))
     if not target or target == "stdout":
         return StdOutput()
@@ -142,10 +133,16 @@ parser.description = "Sets the output of a context section."
 parser.add_argument("section", type=str, help="The section which is to be configured. ('regs', 'disasm', 'code', 'stack', 'backtrace', and/or 'args')")
 parser.add_argument("path", type=str, help="The path to which the output is written")
 parser.add_argument("clearing", type=bool, help="Indicates weather to clear the output")
-parser.add_argument("banner", type=str, default="both", help="Where a banner should be placed: both, top , bottom, none")
-parser.add_argument("width", type=int, default=None, help="Sets a fixed width (used for banner). Set to None for auto")
+banner_arg = parser.add_argument("banner", type=str, nargs='?', default="both", help="Where a banner should be placed: both, top , bottom, none")
+parser.add_argument("width", type=int, nargs='?', default=None, help="Sets a fixed width (used for banner). Set to None for auto")
 @pwndbg.commands.ArgparsedCommand(parser, aliases=['ctx-out'])
 def contextoutput(section, path, clearing, banner="both", width=None):
+    if not banner:  # synonym for splitmind backwards compatibility
+        banner = 'none'
+    if banner not in ('both', 'top', 'bottom', 'none'):
+        raise argparse.ArgumentError(banner_arg, f"banner can not be '{banner}'")
+    if width is not None:
+        width = int(width)
     outputs[section] = path
     output_settings[section] = dict(clearing=clearing,
                                     width=width,
@@ -210,96 +207,33 @@ def context_expressions(target=sys.stdout, with_banner=True, width=None):
         output.extend(lines)
     return banner + output if with_banner else output
 
-# Ghidra integration through radare2
-# This is not (sorry couldn't help it) "the yellow of the egg"
-# Using radare2 is suboptimal and will only be an intermediate step to have
-# ghidra decompiler within pwndbg.
-# But having ghidra in pwndgb is a lot more work as it requires quite some code and c/c++
-radare2 = {}
 
 config_context_ghidra = pwndbg.config.Parameter('context-ghidra',
-                                                  'never',
-                                                  'if or/when to try to decompile with '
-                                                  'ghidra (slow and requires radare2/r2pipe) '
-                                                  '(valid values: always, never, if-no-source)')
-def init_radare2(filename):
-    r2 = radare2.get(filename)
-    if r2:
-        return r2
-    import r2pipe
-    r2 = r2pipe.open(filename)
-    radare2[filename] = r2
-    r2.cmd("aaaa")
-    return r2
+                                                'never',
+                                                'when to try to decompile the current function with ghidra (slow and requires radare2/r2pipe) (valid values: always, never, if-no-source)')
 
-parser = argparse.ArgumentParser()
-parser.description = """Show current function decompiled by ghidra"""
-parser.add_argument("func", type=str, default=None, nargs="?",
-                    help="Function to be shown. Defaults to current")
-@pwndbg.commands.ArgparsedCommand(parser, aliases=['ctx-ghidra'])
-def contextghidra(func):
-    print("\n".join(context_ghidra(func, with_banner=False, force_show=True)))
 
-def context_ghidra(func=None, target=sys.stdout, with_banner=True, width=None, force_show=False):
-    banner = [pwndbg.ui.banner("ghidra decompile", target=target, width=width)]
+def context_ghidra(target=sys.stdout, with_banner=True, width=None):
+    """
+    Print out the source of the current function decompiled by ghidra.
 
-    if config_context_ghidra == "never" and not force_show:
+    The context-ghidra config parameter is used to configure whether to always,
+    never or only show the context if no source is available.
+    """
+    banner = [pwndbg.ui.banner("ghidra decompile", target=target, width=width)] if with_banner else []
+
+    if config_context_ghidra == "never":
         return []
-    elif config_context_ghidra == "if-no-source" and not force_show:
-        try:
-            with open(gdb.selected_frame().find_sal().symtab.fullname()) as _:
-                pass
-        except:         # a lot can go wrong in search of source code.
-            return []   # we don't care what, just that it did not work out well...
 
-    filename = gdb.current_progspace().filename
+    if config_context_ghidra == "if-no-source":
+        source_filename = pwndbg.symbol.selected_frame_source_absolute_filename()
+        if source_filename and os.path.exists(source_filename):
+            return []
+
     try:
-        r2 = init_radare2(filename)
-        # LD         list supported decompilers (e cmd.pdc=?)
-        # Outputs for example:: pdc\npdg
-        if not "pdg" in r2.cmd("LD").split("\n"):
-            return banner + ["radare2 plugin r2ghidra-dec must be installed and available from r2"]
-    except ImportError: # no r2pipe present
-        return banner + ["r2pipe not available, but required for r2->ghidra-bridge"]
-    if func is None:
-        try:
-            func = hex(pwndbg.regs[pwndbg.regs.current.pc])
-        except:
-            func = "main"
-    src = r2.cmdj("pdgj @" + func)
-    source = src.get("code", "")
-    curline = None
-    try:
-        cur = pwndbg.regs[pwndbg.regs.current.pc]
-    except AttributeError:
-        cur = None # If not running there is no current.pc
-    if cur is not None:
-        closest = 0
-        for off in (a.get("offset", 0) for a in src.get("annotations", [])):
-            if abs(cur - closest) > abs(cur - off):
-                closest = off
-        pos_annotations = sorted([a for a in src.get("annotations", []) if a.get("offset") == closest],
-                         key=lambda a: a["start"])
-        if pos_annotations:
-            curline = source.count("\n", 0, pos_annotations[0]["start"])
-    source = source.split("\n")
-    # Append --> for the current line if possible
-    if curline is not None:
-        line = source[curline]
-        if line.startswith('    '):
-            line = line[4:]
-        source[curline] = '--> ' + line
-    # Join the source for highlighting
-    source = "\n".join(source)
-    if pwndbg.config.syntax_highlight:
-        # highlighting depends on the file extension to guess the language, so try to get one...
-        try: # try to read the source filename from debug information
-            src_filename = gdb.selected_frame().find_sal().symtab.fullname()
-        except: # if non, take the original filename and maybe append .c (just assuming is was c)
-            src_filename = filename+".c" if os.path.basename(filename).find(".") < 0 else filename
-        source = H.syntax_highlight(source, src_filename)
-    source = source.split("\n")
-    return banner + source if with_banner else source
+        return banner + pwndbg.ghidra.decompile().split('\n')
+    except Exception as e:
+        return banner + [message.error(e)]
 
 
 
@@ -307,14 +241,14 @@ def context_ghidra(func=None, target=sys.stdout, with_banner=True, width=None, f
 
 parser = argparse.ArgumentParser()
 parser.description = "Print out the current register, instruction, and stack context."
-parser.add_argument("subcontext", nargs="*", type=str, default=None, help="Submenu to display: 'reg', 'disasm', 'code', 'stack', 'backtrace', and/or 'args'")
+parser.add_argument("subcontext", nargs="*", type=str, default=None, help="Submenu to display: 'reg', 'disasm', 'code', 'stack', 'backtrace', 'ghidra', and/or 'args'")
 @pwndbg.commands.ArgparsedCommand(parser, aliases=['ctx'])
 @pwndbg.commands.OnlyWhenRunning
 def context(subcontext=None):
     """
     Print out the current register, instruction, and stack context.
 
-    Accepts subcommands 'reg', 'disasm', 'code', 'stack', 'backtrace', and 'args'.
+    Accepts subcommands 'reg', 'disasm', 'code', 'stack', 'backtrace', 'ghidra' and 'args'.
     """
     if subcontext is None:
         subcontext = []
@@ -356,9 +290,84 @@ def context(subcontext=None):
             out.flush()
 
 
+pwndbg.config.Parameter('show-compact-regs', False, 'whether to show a compact register view with columns')
+pwndbg.config.Parameter('show-compact-regs-columns', 2, 'the number of columns (0 for dynamic number of columns)')
+pwndbg.config.Parameter('show-compact-regs-min-width', 20, 'the minimum width of each column')
+pwndbg.config.Parameter('show-compact-regs-separation', 4, 'the number of spaces separating columns')
+
+
+def calculate_padding_to_align(length, align):
+    ''' Calculates the number of spaces to append to reach the next alignment.
+        The next alignment point is given by "x * align >= length".
+    '''
+    return 0 if length % align == 0 else (align - (length % align))
+
+
+def compact_regs(regs, width=None, target=sys.stdout):
+    columns = max(0, int(pwndbg.config.show_compact_regs_columns))
+    min_width = max(1, int(pwndbg.config.show_compact_regs_min_width))
+    separation = max(1, int(pwndbg.config.show_compact_regs_separation))
+
+    if width is None:  # auto width. In case of stdout, it's better to use stdin (b/c GdbOutputFile)
+        _height, width = pwndbg.ui.get_window_size(target=target if target != sys.stdout else sys.stdin)
+
+    if columns > 0:
+        # Adjust the minimum_width (column) according to the
+        # layout depicted below, where there are "columns" columns
+        # and "columns - 1" separations.
+        #
+        # |<----------------- window width -------------------->|
+        # | column | sep. | column | sep. | ... | sep. | column |
+        #
+        # Which results in the following formula:
+        # window_width = columns * min_width + (columns - 1) * separation
+        # => min_width = (window_width - (columns - 1) * separation) / columns
+        min_width = max(min_width, (width - (columns - 1) * separation) // columns)
+
+    result = []
+
+    line = ''
+    line_length = 0
+    for reg in regs:
+        # Strip the color / hightlight information the get the raw text width of the register
+        reg_length = len(pwndbg.color.strip(reg))
+
+        # Length of line with unoccupied space and padding is required
+        # to fit the register string onto the screen / display.
+        line_length_with_padding = line_length
+        line_length_with_padding += separation if line_length != 0 else 0  # No separation at the start of a line
+        line_length_with_padding += calculate_padding_to_align(line_length_with_padding, min_width + separation)
+
+        # When element does not fully fit, then start a new line
+        if line_length_with_padding + max(reg_length, min_width) > width:
+            result.append(line)
+
+            line = ''
+            line_length = 0
+            line_length_with_padding = 0
+
+        # Add padding in front of the next printed register
+        if line_length != 0:
+            line += ' ' * (line_length_with_padding - line_length)
+
+        line += reg
+        line_length = line_length_with_padding + reg_length
+
+    # Append last line if required
+    if line_length != 0:
+        result.append(line)
+
+    return result
+
+
 def context_regs(target=sys.stdout, with_banner=True, width=None):
+    regs = get_regs()
+    if pwndbg.config.show_compact_regs:
+        regs = compact_regs(regs, target=target, width=width)
+
     banner = [pwndbg.ui.banner("registers", target=target, width=width)]
-    return banner + get_regs() if with_banner else get_regs()
+    return banner + regs if with_banner else regs
+
 
 parser = argparse.ArgumentParser()
 parser.description = '''Print out all registers and enhance the information.'''
@@ -391,7 +400,7 @@ def get_regs(*regs):
             continue
 
         if reg not in pwndbg.regs:
-            message.warn("Unknown register: %r" % reg)
+            print(message.warn("Unknown register: %r" % reg))
             continue
 
         value = pwndbg.regs[reg]
@@ -419,6 +428,23 @@ Unicorn emulation of code near the current instruction
 code_lines = pwndbg.config.Parameter('context-code-lines', 10, 'number of additional lines to print in the code context')
 
 def context_disasm(target=sys.stdout, with_banner=True, width=None):
+    try:
+        flavor = gdb.execute('show disassembly-flavor', to_string=True).lower().split('"')[1]
+    except gdb.error as e:
+        if str(e).find("disassembly-flavor") > -1:
+            flavor = 'intel'
+        else:
+            raise
+
+    syntax = pwndbg.disasm.CapstoneSyntax[flavor]
+
+    # Get the Capstone object to set disassembly syntax
+    cs = next(iter(pwndbg.disasm.get_disassembler_cached.cache.values()), None)
+
+    # The `None` case happens when the cache was not filled yet (see e.g. #881)
+    if cs is not None and cs.syntax != syntax:
+        pwndbg.memoize.reset()
+
     banner = [pwndbg.ui.banner("disasm", target=target, width=width)]
     emulate = bool(pwndbg.config.emulate)
     result = pwndbg.commands.nearpc.nearpc(to_string=True, emulate=emulate, lines=code_lines // 2)
@@ -439,13 +465,13 @@ theme.Parameter('code-prefix', '►', "prefix marker for 'context code' command"
 @pwndbg.memoize.reset_on_start
 def get_highlight_source(filename):
     # Notice that the code is cached
-    with open(filename, encoding='utf-8') as f:
+    with open(filename, encoding='utf-8', errors='ignore') as f:
         source = f.read()
 
     if pwndbg.config.syntax_highlight:
         source = H.syntax_highlight(source, filename)
 
-    source_lines = source.splitlines()
+    source_lines = source.split('\n')
     source_lines = tuple(line.rstrip() for line in source_lines)
     return source_lines
 
@@ -530,7 +556,6 @@ def context_code(target=sys.stdout, with_banner=True, width=None):
 
 stack_lines = pwndbg.config.Parameter('context-stack-lines', 8, 'number of lines to print in the stack context')
 
-
 def context_stack(target=sys.stdout, with_banner=True, width=None):
     result = [pwndbg.ui.banner("stack", target=target, width=width)] if with_banner else []
     telescope = pwndbg.commands.telescope.telescope(pwndbg.regs.sp, to_string=True, count=stack_lines)
@@ -538,10 +563,11 @@ def context_stack(target=sys.stdout, with_banner=True, width=None):
         result.extend(telescope)
     return result
 
+
+backtrace_lines = pwndbg.config.Parameter('context-backtrace-lines', 8, 'number of lines to print in the backtrace context')
 backtrace_frame_label = theme.Parameter('backtrace-frame-label', 'f ', 'frame number label for backtrace')
 
-
-def context_backtrace(frame_count=10, with_banner=True, target=sys.stdout, width=None):
+def context_backtrace(with_banner=True, target=sys.stdout, width=None):
     result = []
 
     if with_banner:
@@ -551,7 +577,7 @@ def context_backtrace(frame_count=10, with_banner=True, target=sys.stdout, width
     newest_frame  = this_frame
     oldest_frame  = this_frame
 
-    for i in range(frame_count):
+    for i in range(backtrace_lines-1):
         try:
             candidate = oldest_frame.older()
         except gdb.MemoryError:
@@ -561,7 +587,7 @@ def context_backtrace(frame_count=10, with_banner=True, target=sys.stdout, width
             break
         oldest_frame = candidate
 
-    for i in range(frame_count):
+    for i in range(backtrace_lines-1):
         candidate = newest_frame.newer()
         if not candidate:
             break

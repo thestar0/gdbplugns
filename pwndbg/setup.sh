@@ -1,12 +1,12 @@
 #!/bin/bash
 set -ex
 
-# If we are a root in a Docker container and `sudo` doesn't exist
+# If we are a root in a container and `sudo` doesn't exist
 # lets overwrite it with a function that just executes things passed to sudo
 # (yeah it won't work for sudo executed with flags)
-if [ -f /.dockerenv ] && ! hash sudo 2>/dev/null && whoami | grep root; then
+if ! hash sudo 2>/dev/null && whoami | grep root; then
     sudo() {
-        $*
+        ${*}
     }
 fi
 
@@ -20,12 +20,12 @@ osx() {
 
 install_apt() {
     sudo apt-get update || true
-    # This breaks Ubuntu 20.04, but is probably still needed for older version
-    sudo apt-get -y install python-pip || true
-    sudo apt-get -y install git gdb python-dev python3-dev python3-pip libglib2.0-dev libc6-dbg
+    sudo apt-get install -y git gdb python3-dev python3-pip python3-setuptools libglib2.0-dev libc6-dbg
 
     if uname -m | grep x86_64 > /dev/null; then
-        sudo apt-get -y install libc6-dbg:i386 || true
+        sudo dpkg --add-architecture i386 || true
+        sudo apt-get update || true
+        sudo apt-get install -y libc6-dbg:i386 || true
     fi
 }
 
@@ -47,12 +47,17 @@ install_swupd() {
 }
 
 install_zypper() {
+    sudo zypper mr -e repo-debug
     sudo zypper refresh || true
     sudo zypper install -y gdb gdbserver python-devel python3-devel python2-pip python3-pip glib2-devel make glibc-debuginfo
 
     if uname -m | grep x86_64 > /dev/null; then
         sudo zypper install -y glibc-32bit-debuginfo || true
     fi
+}
+
+install_emerge() {
+    emerge --oneshot --deep --newuse --changed-use --changed-deps dev-lang/python dev-python/pip sys-devel/gdb
 }
 
 PYTHON=''
@@ -86,8 +91,14 @@ if linux; then
             echo " - https://aur.archlinux.org/packages/pwndbg-git/"
             exit 1
             ;;
+        "endeavouros")
+            echo "Install pwndbg using a community package. See:"
+            echo " - https://www.archlinux.org/packages/community/any/pwndbg/"
+            echo " - https://aur.archlinux.org/packages/pwndbg-git/"
+            exit 1
+            ;;
         "manjaro")
-            echo "Pwndbg is not avaiable on Manjaro's repositories."
+            echo "Pwndbg is not available on Manjaro's repositories."
             echo "But it can be installed using Arch's AUR community package. See:"
             echo " - https://www.archlinux.org/packages/community/any/pwndbg/"
             echo " - https://aur.archlinux.org/packages/pwndbg-git/"
@@ -95,6 +106,14 @@ if linux; then
             ;;
         "void")
             install_xbps
+            ;;
+        "gentoo")
+            install_emerge
+            if ! hash sudo 2>/dev/null && whoami | grep root; then
+                sudo() {
+                    ${*}
+                }
+            fi
             ;;
         *) # we can add more install command for each distros.
             echo "\"$distro\" is not supported distro. Will search for 'apt' or 'dnf' package managers."
@@ -111,7 +130,7 @@ if linux; then
 fi
 
 if ! hash gdb; then
-    echo 'Could not find gdb in $PATH'
+    echo "Could not find gdb in $PATH"
     exit
 fi
 
@@ -121,7 +140,9 @@ git submodule update --init --recursive
 # Find the Python version used by GDB.
 PYVER=$(gdb -batch -q --nx -ex 'pi import platform; print(".".join(platform.python_version_tuple()[:2]))')
 PYTHON+=$(gdb -batch -q --nx -ex 'pi import sys; print(sys.executable)')
+if ! osx; then
 PYTHON+="${PYVER}"
+fi
 
 # Find the Python site-packages that we need to use so that
 # GDB can find the files once we've installed them.

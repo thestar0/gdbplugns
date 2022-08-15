@@ -3,10 +3,6 @@
 """
 Reading, writing, and describing memory.
 """
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-from __future__ import unicode_literals
 
 import os
 from builtins import bytes
@@ -99,6 +95,7 @@ def write(addr, data):
     if isinstance(data, str):
         data = bytes(data, 'utf8')
 
+    # Throws an exception if can't access memory
     gdb.selected_inferior().write_memory(addr, data)
 
 
@@ -150,8 +147,10 @@ def string(addr, max=4096):
     if peek(addr):
         data = bytearray(read(addr, max, partial=True))
 
-        if b'\x00' in data:
-            return data.split(b'\x00')[0]
+        try:
+            return data[:data.index(b'\x00')]
+        except ValueError:
+            pass
 
     return bytearray()
 
@@ -323,6 +322,7 @@ assert round_down(0xdeadbeef, 0x1000) == 0xdeadb000
 assert round_up(0xdeadbeef, 0x1000)   == 0xdeadc000
 
 
+@pwndbg.memoize.reset_on_stop
 def find_upper_boundary(addr, max_pages=1024):
     """find_upper_boundary(addr, max_pages=1024) -> int
 
@@ -337,13 +337,18 @@ def find_upper_boundary(addr, max_pages=1024):
             # import sys
             # sys.stdout.write(hex(addr) + '\n')
             addr += pwndbg.memory.PAGE_SIZE
+
+            # Sanity check in case a custom GDB server/stub
+            # incorrectly returns a result from read
+            # (this is most likely redundant, but its ok to keep it?)
             if addr > pwndbg.arch.ptrmask:
-                break
+                return pwndbg.arch.ptrmask
     except gdb.MemoryError:
         pass
     return addr
 
 
+@pwndbg.memoize.reset_on_stop
 def find_lower_boundary(addr, max_pages=1024):
     """find_lower_boundary(addr, max_pages=1024) -> int
 
@@ -356,14 +361,17 @@ def find_lower_boundary(addr, max_pages=1024):
         for i in range(max_pages):
             pwndbg.memory.read(addr, 1)
             addr -= pwndbg.memory.PAGE_SIZE
+
+            # Sanity check (see comment in find_upper_boundary)
             if addr < 0:
-                break
+                return 0
+
     except gdb.MemoryError:
         addr += pwndbg.memory.PAGE_SIZE
     return addr
 
 
-class Page(object):
+class Page:
     """
     Represents the address space and page permissions of at least
     one page of memory.
@@ -405,7 +413,7 @@ class Page(object):
 
     @property
     def is_memory_mapped_file(self):
-        return len(self.objfile) > 0 and self.objfile[0] != '['
+        return len(self.objfile) > 0 and self.objfile[0] != '[' and self.objfile != '<pt>'
 
     @property
     def read(self):

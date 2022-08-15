@@ -1,20 +1,15 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-from __future__ import unicode_literals
-
 import argparse
 import ctypes
 import struct
 
 import gdb
-import six
 
 import pwndbg.color.context as C
 import pwndbg.color.memory as M
 import pwndbg.commands
+import pwndbg.glibc
 import pwndbg.typeinfo
 from pwndbg.color import generateColorFunction
 from pwndbg.color import message
@@ -44,13 +39,16 @@ def format_bin(bins, verbose=False, offset=None):
     for size in bins:
         b = bins[size]
         count, is_chain_corrupted = None, False
+        safe_lnk = False
 
         # fastbins consists of only single linked list
         if bins_type == 'fastbins':
             chain_fd = b
+            safe_lnk = pwndbg.glibc.check_safe_linking()
         # tcachebins consists of single linked list and entries count
         elif bins_type == 'tcachebins':
             chain_fd, count = b
+            safe_lnk = pwndbg.glibc.check_safe_linking()
         # normal bins consists of double linked list and may be corrupted (we can detect corruption)
         else:  # normal bin
             chain_fd, chain_bk, is_chain_corrupted = b
@@ -62,9 +60,9 @@ def format_bin(bins, verbose=False, offset=None):
             limit = 8
             if count <= 7:
                 limit = count + 1
-            formatted_chain = pwndbg.chain.format(chain_fd[0], offset=offset, limit=limit)
+            formatted_chain = pwndbg.chain.format(chain_fd[0], offset=offset, limit=limit, safe_linking=safe_lnk)
         else:
-            formatted_chain = pwndbg.chain.format(chain_fd[0], offset=offset)
+            formatted_chain = pwndbg.chain.format(chain_fd[0], offset=offset, safe_linking=safe_lnk)
 
 
         if isinstance(size, int):
@@ -650,7 +648,7 @@ def vis_heap_chunks(addr=None, count=None, naive=None):
 
 def bin_ascii(bs):
     from string import printable
-    valid_chars = list(map(ord, set(printable) - set('\t\r\n\x0c')))
+    valid_chars = list(map(ord, set(printable) - set('\t\r\n\x0c\x0b')))
     return ''.join(chr(c) if c in valid_chars else '.'for c in bs)
 
 
@@ -699,11 +697,11 @@ def try_free(addr):
     free_hook = pwndbg.symbol.address('__free_hook')
     if free_hook is not None:
         if pwndbg.memory.pvoid(free_hook) != 0:
-            message.success('__libc_free: will execute __free_hook')
+            print(message.success('__libc_free: will execute __free_hook'))
 
     # free(0) has no effect
     if addr == 0:
-        message.success('__libc_free: addr is 0, nothing to do')
+        print(message.success('__libc_free: addr is 0, nothing to do'))
         return
 
     # constants
@@ -938,10 +936,10 @@ def try_free(addr):
                 finalize(errors_found, returned_before_error)
                 return
 
-            if unsigned_size(prev_chunk['size']) != prev_size:
+            if prev_chunk_size != prev_size:
                 err = 'corrupted size vs. prev_size while consolidating\n'
                 err += 'prev_size field is 0x{:x}, prev chunk at 0x{:x}, prev chunk size is 0x{:x}'
-                err = err.format(prev_size, prev_chunk_addr, unsigned_size(prev_chunk['size']))
+                err = err.format(prev_size, prev_chunk_addr, prev_chunk_size)
                 print(message.error(err))
                 errors_found += 1
             else:
@@ -1000,7 +998,7 @@ def try_free(addr):
 
     #is mapped
     else:
-        message.notice('Doing munmap_chunk')
+        print(message.notice('Doing munmap_chunk'))
 
     finalize(errors_found, returned_before_error)
 

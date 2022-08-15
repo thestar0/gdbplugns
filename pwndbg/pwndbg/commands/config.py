@@ -3,16 +3,11 @@
 """
 Dumps all pwndbg-specific configuration points.
 """
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-from __future__ import unicode_literals
 
 import argparse
 
 import pwndbg.commands
 import pwndbg.config
-from pwndbg.color import light_yellow
 from pwndbg.color import ljust_colored
 from pwndbg.color import strip
 from pwndbg.color.message import hint

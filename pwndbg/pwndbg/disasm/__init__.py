@@ -4,10 +4,6 @@
 Functionality for disassmebling code at an address, or at an
 address +/- a few instructions.
 """
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-from __future__ import unicode_literals
 
 import collections
 
@@ -18,7 +14,6 @@ from capstone import *
 import pwndbg.arch
 import pwndbg.disasm.arch
 import pwndbg.ida
-import pwndbg.jump
 import pwndbg.memoize
 import pwndbg.memory
 import pwndbg.symbol
@@ -33,6 +28,7 @@ CapstoneArch = {
     'armcm': CS_ARCH_ARM,
     'aarch64': CS_ARCH_ARM64,
     'i386': CS_ARCH_X86,
+    'i8086': CS_ARCH_X86,
     'x86-64': CS_ARCH_X86,
     'powerpc': CS_ARCH_PPC,
     'mips': CS_ARCH_MIPS,
@@ -49,6 +45,11 @@ CapstoneMode = {
     8: CS_MODE_64
 }
 
+CapstoneSyntax = {
+    'intel': CS_OPT_SYNTAX_INTEL,
+    'att': CS_OPT_SYNTAX_ATT
+}
+
 # For variable-instruction-width architectures
 # (x86 and amd64), we keep a cache of instruction
 # sizes, and where the end of the instruction falls.
@@ -57,6 +58,7 @@ CapstoneMode = {
 VariableInstructionSizeMax = {
     'i386':   16,
     'x86-64': 16,
+    'i8086':  16,
     'mips':   8,
 }
 
@@ -73,7 +75,21 @@ def get_disassembler_cached(arch, ptrsize, endian, extra=None):
 
     mode |= CapstoneEndian[endian]
 
+    try:
+        flavor = gdb.execute('show disassembly-flavor', to_string=True).lower().split('"')[1]
+    except gdb.error as e:
+        if str(e).find("disassembly-flavor") > -1:
+            flavor = 'intel'
+        else:
+            raise
+
     cs = Cs(arch, mode)
+    try:
+        cs.syntax = CapstoneSyntax[flavor]
+    except CsError as ex:
+        pass
+    except:
+        raise
     cs.detail = True
     return cs
 
@@ -90,6 +106,13 @@ def get_disassembler(pc):
         else:
             # The ptrsize base modes cause capstone.CsError: Invalid mode (CS_ERR_MODE)
             extra = 0 
+            
+    elif pwndbg.arch.current == 'i8086':
+        extra = CS_MODE_16
+
+    elif pwndbg.arch.current == 'mips' and 'isa32r6' in gdb.newest_frame().architecture().name():
+        extra = CS_MODE_MIPS32R6
+    
     else:
         extra = None
 
@@ -198,9 +221,7 @@ def near(address, instructions=1, emulate=False, show_prev_insns=True):
     # If we hit the current instruction, we can do emulation going forward from there.
     if address == pc and emulate:
         emu = pwndbg.emu.emulator.Emulator()
-
-        # For whatever reason, the first instruction is emulated twice.
-        # Skip the first one here.
+        # skip current line
         emu.single_step()
 
     # Now find all of the instructions moving forward.
@@ -245,9 +266,3 @@ def near(address, instructions=1, emulate=False, show_prev_insns=True):
 
     return insns
 
-
-def is_call(address=None):
-    """
-    Returns whether a given address contains call instruction.
-    """
-    return capstone.CS_GRP_CALL in one(address).groups

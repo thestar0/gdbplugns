@@ -1,10 +1,3 @@
-#!/usr/bin/env python
-# -*- coding: utf-8 -*-
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-from __future__ import unicode_literals
-
 import os
 import re
 import sys
@@ -85,9 +78,6 @@ sys.modules[__name__].__dict__.update({v:k for k,v in AT_CONSTANTS.items()})
 
 
 class AUXV(dict):
-    def __init__(self):
-        for field in AT_CONSTANTS.values():
-            self[field] = None
     def set(self, const, value):
         name         = AT_CONSTANTS.get(const, "AT_UNKNOWN%i" % const)
 
@@ -101,11 +91,12 @@ class AUXV(dict):
 
         self[name] = value
     def __getattr__(self, attr):
-        return self[attr]
+        return self.get(attr)
     def __str__(self):
         return str({k:v for k,v in self.items() if v is not None})
 
 @pwndbg.memoize.reset_on_objfile
+@pwndbg.memoize.reset_on_start
 def get():
     return use_info_auxv() or walk_stack() or AUXV()
 
@@ -117,7 +108,7 @@ def use_info_auxv():
 
     auxv = AUXV()
     for line in lines:
-        match = re.match('([0-9]+) .* (0x[0-9a-f]+|[0-9]+)', line)
+        match = re.match('([0-9]+) .*? (0x[0-9a-f]+|[0-9]+$)', line)
         if not match:
             print("Warning: Skipping auxv entry '{}'".format(line))
             continue
@@ -210,7 +201,7 @@ def walk_stack2(offset=0):
     while p.dereference() != 0 or (p+1).dereference() != 0:
         p -= 2
 
-    # Now we want to continue until we fine, at a minumum, AT_BASE.
+    # Now we want to continue until we fine, at a minimum, AT_BASE.
     # While there's no guarantee that this exists, I've not ever found
     # an instance when it doesn't.
     #

@@ -5,10 +5,6 @@ Retrieve files from the debuggee's filesystem.  Useful when
 debugging a remote process over SSH or similar, where e.g.
 /proc/FOO/maps is needed from the remote system.
 """
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-from __future__ import unicode_literals
 
 import binascii
 import os
@@ -16,6 +12,7 @@ import tempfile
 
 import gdb
 
+import pwndbg.color.message as message
 import pwndbg.qemu
 import pwndbg.remote
 import pwndbg.symbol
@@ -26,25 +23,38 @@ def get_file(path):
     Downloads the specified file from the system where the current process is
     being debugged.
 
+    If the `path` is prefixed with "target:" the prefix is stripped
+    (to support remote target paths properly).
+
     Returns:
         The local path to the file
     """
+    assert path.startswith('/') or path.startswith('target:'), "get_file called with incorrect path"
+
+    if path.startswith('target:'):
+        path = path[7:]  # len('target:') == 7
+
     local_path = path
     qemu_root = pwndbg.qemu.root()
+
     if qemu_root:
         return os.path.join(qemu_root, path)
-    elif pwndbg.remote.is_remote() and not pwndbg.qemu.is_qemu():
-        local_path = tempfile.mktemp(dir=pwndbg.symbol.remote_files_dir)
-        error      = None
-        try:
-            error = gdb.execute('remote get "%s" "%s"' % (path, local_path),
-                                 to_string=True)
-        except gdb.error as e:
-            error = e
 
-        if error:
-            raise OSError("Could not download remote file %r:\n" \
-                            "Error: %s" % (path, error))
+    elif pwndbg.remote.is_remote():
+        if not pwndbg.qemu.is_qemu():
+            local_path = tempfile.mktemp(dir=pwndbg.symbol.remote_files_dir)
+            error      = None
+            try:
+                error = gdb.execute('remote get "%s" "%s"' % (path, local_path),
+                                     to_string=True)
+            except gdb.error as e:
+                error = e
+
+            if error:
+                raise OSError("Could not download remote file %r:\n" \
+                                "Error: %s" % (path, error))
+        else:
+            print(message.warn("pwndbg.file.get(%s) returns local path as we can't download file from QEMU" % path))
 
     return local_path
 

@@ -3,10 +3,6 @@
 """
 Compatibility functionality for Windbg users.
 """
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-from __future__ import unicode_literals
 
 import argparse
 import codecs
@@ -33,8 +29,8 @@ def get_type(size):
     }[size]
 
 parser = argparse.ArgumentParser(description="Starting at the specified address, dump N bytes.")
-parser.add_argument("address", type=int, help="The address to dump from.")
-parser.add_argument("count", type=int, default=64, nargs="?", help="The number of bytes to dump.")
+parser.add_argument("address", type=pwndbg.commands.HexOrAddressExpr, help="The address to dump from.")
+parser.add_argument("count", type=pwndbg.commands.AddressExpr, default=64, nargs="?", help="The number of bytes to dump.")
 @pwndbg.commands.ArgparsedCommand(parser)
 @pwndbg.commands.OnlyWhenRunning
 def db(address, count=64):
@@ -42,12 +38,12 @@ def db(address, count=64):
     Starting at the specified address, dump N bytes
     (default 64).
     """
-    return dX(1, (address), (count))
+    return dX(1, address, count, repeat=db.repeat)
 
 
 parser = argparse.ArgumentParser(description="Starting at the specified address, dump N words.")
-parser.add_argument("address", type=int, help="The address to dump from.")
-parser.add_argument("count", type=int, default=32, nargs="?", help="The number of words to dump.")
+parser.add_argument("address", type=pwndbg.commands.HexOrAddressExpr, help="The address to dump from.")
+parser.add_argument("count", type=pwndbg.commands.AddressExpr, default=32, nargs="?", help="The number of words to dump.")
 @pwndbg.commands.ArgparsedCommand(parser)
 @pwndbg.commands.OnlyWhenRunning
 def dw(address, count=32):
@@ -55,12 +51,12 @@ def dw(address, count=32):
     Starting at the specified address, dump N words
     (default 32).
     """
-    return dX(2, (address), (count))
+    return dX(2, address, count, repeat=dw.repeat)
 
 
-parser = argparse.ArgumentParser(description="Starting at the specified address, dump N dwrods.")
-parser.add_argument("address", type=int, help="The address to dump from.")
-parser.add_argument("count", type=int, default=16, nargs="?", help="The number of dwords to dump.")
+parser = argparse.ArgumentParser(description="Starting at the specified address, dump N dwords.")
+parser.add_argument("address", type=pwndbg.commands.HexOrAddressExpr, help="The address to dump from.")
+parser.add_argument("count", type=pwndbg.commands.AddressExpr, default=16, nargs="?", help="The number of dwords to dump.")
 @pwndbg.commands.ArgparsedCommand(parser)
 @pwndbg.commands.OnlyWhenRunning
 def dd(address, count=16):
@@ -68,11 +64,11 @@ def dd(address, count=16):
     Starting at the specified address, dump N dwords
     (default 16).
     """
-    return dX(4, (address), (count))
+    return dX(4, address, count, repeat=dd.repeat)
 
 parser = argparse.ArgumentParser(description="Starting at the specified address, dump N qwords.")
-parser.add_argument("address", type=int, help="The address to dump from.")
-parser.add_argument("count", type=int, default=8, nargs="?", help="The number of qwords to dump.")
+parser.add_argument("address", type=pwndbg.commands.HexOrAddressExpr, help="The address to dump from.")
+parser.add_argument("count", type=pwndbg.commands.AddressExpr, default=8, nargs="?", help="The number of qwords to dump.")
 @pwndbg.commands.ArgparsedCommand(parser)
 @pwndbg.commands.OnlyWhenRunning
 def dq(address, count=8):
@@ -80,24 +76,31 @@ def dq(address, count=8):
     Starting at the specified address, dump N qwords
     (default 8).
     """
-    return dX(8, (address), (count))
+    return dX(8, address, count, repeat=dq.repeat)
 
 parser = argparse.ArgumentParser(description="Starting at the specified address, hexdump.")
-parser.add_argument("address", type=int, help="The address to dump from.")
-parser.add_argument("count", type=int, default=8, nargs="?", help="The number of bytes to hexdump.")
+parser.add_argument("address", type=pwndbg.commands.HexOrAddressExpr, help="The address to dump from.")
+parser.add_argument("count", type=pwndbg.commands.AddressExpr, default=8, nargs="?", help="The number of bytes to hexdump.")
 @pwndbg.commands.ArgparsedCommand(parser)
 @pwndbg.commands.OnlyWhenRunning
 def dc(address, count=8):
     return pwndbg.commands.hexdump.hexdump(address=address, count=count)
 
-def dX(size, address, count, to_string=False):
+def dX(size, address, count, to_string=False, repeat=False):
     """
     Traditionally, windbg will display 16 bytes of data per line.
     """
     values = []
-    address = int(address) & pwndbg.arch.ptrmask
+
+    if repeat:
+        count = dX.last_count
+        address = dX.last_address
+    else:
+        address = int(address) & pwndbg.arch.ptrmask
+        count = int(count)
+
     type   = get_type(size)
-    count = int(count)
+
     for i in range(count):
         try:
             gval = pwndbg.memory.poi(type, address + i * size)
@@ -105,6 +108,10 @@ def dX(size, address, count, to_string=False):
             values.append(int(gval))
         except gdb.MemoryError:
             break
+
+    if not values:
+        print('Could not access the provided address')
+        return
 
     n_rows = int(math.ceil(count * size / float(16)))
     row_sz = int(16 / size)
@@ -124,6 +131,9 @@ def dX(size, address, count, to_string=False):
     if not to_string:
         print('\n'.join(lines))
 
+    dX.last_count = count
+    dX.last_address = address + len(rows)*16
+
     return lines
 
 def enhex(size, value):
@@ -134,7 +144,7 @@ def enhex(size, value):
 
 
 parser = argparse.ArgumentParser(description="Write hex bytes at the specified address.")
-parser.add_argument("address", type=int, help="The address to write to.")
+parser.add_argument("address", type=pwndbg.commands.HexOrAddressExpr, help="The address to write to.")
 parser.add_argument("data", type=str, nargs="*", help="The bytes to write.")
 @pwndbg.commands.ArgparsedCommand(parser)
 @pwndbg.commands.OnlyWhenRunning
@@ -146,7 +156,7 @@ def eb(address, data):
 
 
 parser = argparse.ArgumentParser(description="Write hex words at the specified address.")
-parser.add_argument("address", type=int, help="The address to write to.")
+parser.add_argument("address", type=pwndbg.commands.HexOrAddressExpr, help="The address to write to.")
 parser.add_argument("data", type=str, nargs="*", help="The words to write.")
 @pwndbg.commands.ArgparsedCommand(parser)
 @pwndbg.commands.OnlyWhenRunning
@@ -158,7 +168,7 @@ def ew(address, data):
 
 
 parser = argparse.ArgumentParser(description="Write hex dwords at the specified address.")
-parser.add_argument("address", type=int, help="The address to write to.")
+parser.add_argument("address", type=pwndbg.commands.HexOrAddressExpr, help="The address to write to.")
 parser.add_argument("data", type=str, nargs="*", help="The dwords to write.")
 @pwndbg.commands.ArgparsedCommand(parser)
 @pwndbg.commands.OnlyWhenRunning
@@ -170,7 +180,7 @@ def ed(address, data):
 
 
 parser = argparse.ArgumentParser(description="Write hex qwords at the specified address.")
-parser.add_argument("address", type=int, help="The address to write to.")
+parser.add_argument("address", type=pwndbg.commands.HexOrAddressExpr, help="The address to write to.")
 parser.add_argument("data", type=str, nargs="*", help="The qwords to write.")
 @pwndbg.commands.ArgparsedCommand(parser)
 @pwndbg.commands.OnlyWhenRunning
@@ -182,7 +192,7 @@ def eq(address, data):
 
 
 parser = argparse.ArgumentParser(description="Write a string at the specified address.")
-parser.add_argument("address", type=int, help="The address to write to.")
+parser.add_argument("address", type=pwndbg.commands.HexOrAddressExpr, help="The address to write to.")
 parser.add_argument("data", type=str, help="The string to write.")
 @pwndbg.commands.ArgparsedCommand(parser)
 @pwndbg.commands.OnlyWhenRunning
@@ -193,7 +203,7 @@ def ez(address, data):
     return eX(1, address, data, hex=False)
 
 parser = argparse.ArgumentParser(description="Write a string at the specified address.") #TODO Is eza just ez? If so just alias. I had trouble finding windbg documentation defining ez
-parser.add_argument("address", type=int, help="The address to write to.")
+parser.add_argument("address", type=pwndbg.commands.HexOrAddressExpr, help="The address to write to.")
 parser.add_argument("data", type=str, help="The string to write.")
 @pwndbg.commands.ArgparsedCommand(parser)
 @pwndbg.commands.OnlyWhenRunning
@@ -207,31 +217,47 @@ def eX(size, address, data, hex=True):
     """
     This relies on windbg's default hex encoding being enforced
     """
-    address = pwndbg.commands.fix(address)
-
-    if address is None:
+    if not data:
+        print('Cannot write empty data into memory.')
         return
 
-    for i, bytestr in enumerate(data):
+    if hex:
+        # Early validation if all data is hex
+        for string in data:
+            if string.startswith('0x'):
+                string = string[2:]
+
+            if any(ch not in '0123456789abcdefABCDEF' for ch in string):
+                print('Incorrect data format: it must all be a hex value (0x1234 or 1234, both interpreted as 0x1234)')
+                return
+
+    writes = 0
+    for i, string in enumerate(data):
         if hex:
-            bytestr = str(bytestr)
+            if string.startswith('0x'):
+                string = string[2:]
 
-            if bytestr.startswith('0x'):
-                bytestr = bytestr[2:]
+            string = string.rjust(size*2, '0')
 
-            bytestr = bytestr.rjust(size*2, '0')
-
-            data    = codecs.decode(bytestr, 'hex')
+            data    = codecs.decode(string, 'hex')
         else:
-            data    = bytestr
+            data    = string
 
         if pwndbg.arch.endian == 'little':
             data = data[::-1]
 
-        pwndbg.memory.write(address + (i * size), data)
+        try:
+            pwndbg.memory.write(address + (i * size), data)
+            writes += 1
+        except gdb.error:
+            print('Cannot access memory at address %#x' % address)
+            if writes > 0:
+                print('(Made %d writes to memory; skipping further writes)' % writes)
+            return
+
 
 parser = argparse.ArgumentParser(description="Dump pointers and symbols at the specified address.")
-parser.add_argument("addr", type=int, help="The address to dump from.")
+parser.add_argument("addr", type=pwndbg.commands.HexOrAddressExpr, help="The address to dump from.")
 @pwndbg.commands.ArgparsedCommand(parser,aliases=['kd','dps','dqs']) #TODO are these really all the same? They had identical implementation...
 @pwndbg.commands.OnlyWhenRunning
 def dds(addr):
@@ -243,28 +269,35 @@ def dds(addr):
 
 da_parser = argparse.ArgumentParser()
 da_parser.description = 'Dump a string at the specified address.'
-da_parser.add_argument('address', help='Address to dump')
+da_parser.add_argument('address', type=pwndbg.commands.HexOrAddressExpr, help='Address to dump')
 da_parser.add_argument('max', type=int, nargs='?', default=256,
                        help='Maximum string length')
 @pwndbg.commands.ArgparsedCommand(da_parser)
 @pwndbg.commands.OnlyWhenRunning
 def da(address, max):
-    address = int(address)
-    address &= pwndbg.arch.ptrmask
     print("%x" % address, repr(pwndbg.strings.get(address, max)))
 
 ds_parser = argparse.ArgumentParser()
 ds_parser.description = 'Dump a string at the specified address.'
-ds_parser.add_argument('address', help='Address to dump')
+ds_parser.add_argument('address', type=pwndbg.commands.HexOrAddressExpr, help='Address to dump')
 ds_parser.add_argument('max', type=int, nargs='?', default=256,
                        help='Maximum string length')
 @pwndbg.commands.ArgparsedCommand(ds_parser)
 @pwndbg.commands.OnlyWhenRunning
 def ds(address, max):
-    address = int(address)
-    address &= pwndbg.arch.ptrmask
-    print("%x" % address, repr(pwndbg.strings.get(address, max)))
+    # We do change the max length to the default if its too low
+    # because the truncated display is not that ideal/not the same as GDB's yet
+    # (ours: "truncated ...", GDBs: "truncated "...)
+    if max < 256:
+        print('Max str len of %d too low, changing to 256' % max)
+        max = 256
 
+    string = pwndbg.strings.get(address, max, maxread=4096)
+    if string:
+        print("%x %r" % (address, string))
+    else:
+        print("Data at address can't be dereferenced or is not a printable null-terminated string or is too short.")
+        print("Perhaps try: db <address> <count> or hexdump <address>")
 
 @pwndbg.commands.ArgparsedCommand("List breakpoints.")
 def bl():

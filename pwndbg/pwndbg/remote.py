@@ -4,10 +4,6 @@
 Information about whether the debuggee is local (under GDB) or remote
 (under GDBSERVER or QEMU stub).
 """
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-from __future__ import unicode_literals
 
 import gdb
 
@@ -15,6 +11,7 @@ import pwndbg.memoize
 
 
 @pwndbg.memoize.reset_on_objfile
+@pwndbg.memoize.reset_on_start
 def is_remote():
     # Example:
     # pwndbg> maintenance print target-stack

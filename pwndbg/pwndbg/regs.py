@@ -4,11 +4,6 @@
 Reading register value from the inferior, and provides a
 standardized interface to registers like "sp" and "pc".
 """
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-from __future__ import unicode_literals
-
 import collections
 import ctypes
 import re
@@ -16,7 +11,6 @@ import sys
 from types import ModuleType
 
 import gdb
-import six
 
 import pwndbg.arch
 import pwndbg.events
@@ -24,13 +18,8 @@ import pwndbg.memoize
 import pwndbg.proc
 import pwndbg.remote
 
-try:
-    long
-except NameError:
-    long=int
 
-
-class RegisterSet(object):
+class RegisterSet:
     #: Program counter register
     pc = None
 
@@ -104,14 +93,14 @@ arm_xpsr_flags = collections.OrderedDict([
 
 arm = RegisterSet(  retaddr = ('lr',),
                     flags   = {'cpsr': arm_cpsr_flags},
-                    gpr     = tuple('r%i' % i for i in range(13)),
+                    gpr     = ('r0', 'r1', 'r2', 'r3', 'r4', 'r5', 'r6', 'r7', 'r8', 'r9', 'r10', 'r11', 'r12'),
                     args    = ('r0','r1','r2','r3'),
                     retval  = 'r0')
 
 # ARM Cortex-M
 armcm = RegisterSet(  retaddr = ('lr',),
                     flags   = {'xpsr': arm_xpsr_flags},
-                    gpr     = tuple('r%i' % i for i in range(13)),
+                    gpr     = ('r0', 'r1', 'r2', 'r3', 'r4', 'r5', 'r6', 'r7', 'r8', 'r9', 'r10', 'r11', 'r12'),
                     args    = ('r0','r1','r2','r3'),
                     retval  = 'r0')
 
@@ -119,8 +108,12 @@ armcm = RegisterSet(  retaddr = ('lr',),
 aarch64 = RegisterSet(  retaddr = ('lr',),
                         flags   = {'cpsr':{}},
                         frame   = 'x29',
-                        gpr     = tuple('x%i' % i for i in range(29)),
-                        misc    = tuple('w%i' % i for i in range(29)),
+                        gpr     = ('x0', 'x1', 'x2', 'x3', 'x4', 'x5', 'x6', 'x7', 'x8', 'x9',
+                                   'x10', 'x11', 'x12', 'x13', 'x14', 'x15', 'x16', 'x17', 'x18', 'x19',
+                                   'x20', 'x21', 'x22', 'x23', 'x24', 'x25', 'x26', 'x27', 'x28', 'x30'),
+                        misc    = ('w0', 'w1', 'w2', 'w3', 'w4', 'w5', 'w6', 'w7', 'w8', 'w9',
+                                   'w10', 'w11', 'w12', 'w13', 'w14', 'w15', 'w16', 'w17', 'w18', 'w19',
+                                   'w20', 'w21', 'w22', 'w23', 'w24', 'w25', 'w26', 'w27', 'w28'),
                         args    = ('x0','x1','x2','x3'),
                         retval  = 'x0')
 
@@ -164,10 +157,8 @@ i386 = RegisterSet( pc      = 'eip',
                                 'bx','bh','bl',
                                 'cx','ch','cl',
                                 'dx','dh','dl',
-                                'dil','sil','spl','bpl',
                                 'di','si','bp','sp','ip'),
                     retval  = 'eax')
-
 
 # http://math-atlas.sourceforge.net/devel/assembly/elfspec_ppc.pdf
 # r0      Volatile register which may be modified during function linkage
@@ -179,11 +170,13 @@ i386 = RegisterSet( pc      = 'eip',
 # r13     Small data area pointer register (points to TLS)
 # r14-r30 Registers used for local variables
 # r31     Used for local variables or "environment pointers"
-powerpc = RegisterSet(  retaddr = ('lr','r0'),
+powerpc = RegisterSet(  retaddr = ('lr',),
                         flags   = {'msr':{},'xer':{}},
-                        gpr     = tuple('r%i' % i for i in range(3,32)),
-                        misc    = ('cr','lr','r2'),
-                        args    = tuple('r%i' for i in range(3,11)),
+                        gpr     = ('r0', 'r1', 'r2', 'r3', 'r4', 'r5', 'r6', 'r7', 'r8', 'r9',
+                                   'r10', 'r11', 'r12', 'r13', 'r14', 'r15', 'r16', 'r17', 'r18', 'r19',
+                                   'r20', 'r21', 'r22', 'r23', 'r24', 'r25', 'r26', 'r27', 'r28', 'r29',
+                                   'r30', 'r31', 'cr', 'ctr'),
+                        args    = ('r3', 'r4', 'r5', 'r6', 'r7', 'r8', 'r9', 'r10'),
                         retval  = 'r3')
 
 # http://people.cs.clemson.edu/~mark/sparc/sparc_arch_desc.txt
@@ -212,18 +205,16 @@ powerpc = RegisterSet(  retaddr = ('lr','r0'),
 # %i7 == %r31 == for return address   |
 # ____________________________________/
 
-sparc_gp = tuple(['g%i' % i for i in range(1,8)]
-                +['o%i' % i for i in range(0,6)]+['o7']
-                +['l%i' % i for i in range(0,8)]
-                +['i%i' % i for i in range(0,6)])
 sparc = RegisterSet(stack   = 'sp',
                     frame   = 'fp',
                     retaddr = ('i7',),
                     flags   = {'psr':{}},
-                    gpr     = sparc_gp,
+                    gpr     = ('g1', 'g2', 'g3', 'g4', 'g5', 'g6', 'g7',
+                               'o0', 'o1', 'o2', 'o3', 'o4', 'o5', 'o7',
+                               'l0', 'l1', 'l2', 'l3', 'l4', 'l5', 'l6', 'l7',
+                               'i0', 'i1', 'i2', 'i3', 'i4', 'i5'),
                     args    = ('i0','i1','i2','i3','i4','i5'),
                     retval  = 'o0')
-
 
 # http://logos.cs.uic.edu/366/notes/mips%20quick%20tutorial.htm
 # r0        => zero
@@ -240,14 +231,15 @@ sparc = RegisterSet(stack   = 'sp',
 # r31       => return address
 mips = RegisterSet( frame   = 'fp',
                     retaddr = ('ra',),
-                    gpr     = ('v0','v1','a0','a1','a2','a3') \
-                              + tuple('t%i' % i for i in range(10)) \
-                              + tuple('s%i' % i for i in range(9)),
+                    gpr     = ('v0','v1','a0','a1','a2','a3',
+                               't0', 't1', 't2', 't3', 't4', 't5', 't6', 't7', 't8', 't9',
+                               's0', 's1', 's2', 's3', 's4', 's5', 's6', 's7', 's8', 'gp'),
                     args    = ('a0','a1','a2','a3'),
                     retval  = 'v0')
 
 arch_to_regs = {
     'i386': i386,
+    'i8086': i386,
     'x86-64': amd64,
     'mips': mips,
     'sparc': sparc,
@@ -290,11 +282,13 @@ class module(ModuleType):
                 value = gdb77_get_register(attr)
                 value = value.cast(pwndbg.typeinfo.uint32)
             else:
-                if attr.lower() == 'xpsr':
-                    attr = 'xPSR'
                 value = get_register(attr)
+                if value is None and attr.lower() == 'xpsr':
+                    value = get_register('xPSR')
                 size = pwndbg.typeinfo.unsigned.get(value.type.sizeof, pwndbg.typeinfo.ulong)
                 value = value.cast(size)
+                if attr.lower() == 'pc' and pwndbg.arch.current == 'i8086':
+                    value += self.cs * 16
 
             value = int(value)
             return value & pwndbg.arch.ptrmask
@@ -304,9 +298,10 @@ class module(ModuleType):
     @pwndbg.memoize.reset_on_stop
     @pwndbg.memoize.reset_on_prompt
     def __getitem__(self, item):
-        if not isinstance(item, six.string_types):
+        if not isinstance(item, str):
             print("Unknown register type: %r" % (item))
-            import pdb, traceback
+            import pdb
+            import traceback
             traceback.print_stack()
             pdb.set_trace()
             return None
@@ -315,7 +310,7 @@ class module(ModuleType):
         item = item.lstrip('$')
         item = getattr(self, item.lower())
 
-        if isinstance(item, six.integer_types):
+        if isinstance(item, int):
             return int(item) & pwndbg.arch.ptrmask
 
         return item
@@ -394,21 +389,27 @@ class module(ModuleType):
     @property
     @pwndbg.memoize.reset_on_stop
     def fsbase(self):
-        return self._fs_gs_helper(ARCH_GET_FS)
+        return self._fs_gs_helper("fs_base", ARCH_GET_FS)
+
 
     @property
     @pwndbg.memoize.reset_on_stop
     def gsbase(self):
-        return self._fs_gs_helper(ARCH_GET_GS)
+        return self._fs_gs_helper("gs_base", ARCH_GET_GS)
 
     @pwndbg.memoize.reset_on_stop
-    def _fs_gs_helper(self, which):
+    def _fs_gs_helper(self, regname, which):
         """Supports fetching based on segmented addressing, a la fs:[0x30].
+        Requires ptrace'ing the child directly for GDB < 8."""
 
-        Requires ptrace'ing the child directly."""
+        # For GDB >= 8.x we can use get_register directly
+        # Elsewhere we have to get the register via ptrace
+        if get_register == gdb79_get_register:
+            return get_register(regname)
 
         # We can't really do anything if the process is remote.
-        if pwndbg.remote.is_remote(): return 0
+        if pwndbg.remote.is_remote():
+            return 0
 
         # Use the lightweight process ID
         pid, lwpid, tid = gdb.selected_thread().ptid

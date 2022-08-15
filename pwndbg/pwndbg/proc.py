@@ -5,10 +5,6 @@ Provides values which would be available from /proc which
 are not fulfilled by other modules and some process/gdb flow
 related information.
 """
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-from __future__ import unicode_literals
 
 import functools
 import sys
@@ -62,6 +58,17 @@ class module(ModuleType):
 
     @property
     def exe(self):
+        """
+        Returns the debugged file name.
+
+        On remote targets, this may be prefixed with "target:" string.
+        See this by executing those in two terminals:
+        1. gdbserver 127.0.0.1:1234 /bin/ls
+        2. gdb -ex "target remote :1234" -ex "pi pwndbg.proc.exe"
+
+        If you need to process the debugged file use:
+            `pwndbg.file.get_file(pwndbg.proc.exe)`
+        """
         return gdb.current_progspace().filename
 
     @property

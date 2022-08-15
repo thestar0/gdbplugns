@@ -1,10 +1,5 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-from __future__ import unicode_literals
-
 import signal
 
 import gdb
@@ -17,24 +12,30 @@ import pwndbg.color
 import pwndbg.commands
 import pwndbg.commands.argv
 import pwndbg.commands.aslr
+import pwndbg.commands.attachp
 import pwndbg.commands.auxv
 import pwndbg.commands.canary
 import pwndbg.commands.checksec
+import pwndbg.commands.comments
 import pwndbg.commands.config
 import pwndbg.commands.context
 import pwndbg.commands.cpsr
 import pwndbg.commands.dt
 import pwndbg.commands.dumpargs
 import pwndbg.commands.elf
+import pwndbg.commands.flags
 import pwndbg.commands.gdbinit
+import pwndbg.commands.ghidra
 import pwndbg.commands.got
 import pwndbg.commands.heap
 import pwndbg.commands.hexdump
 import pwndbg.commands.ida
 import pwndbg.commands.leakfind
+import pwndbg.commands.memoize
 import pwndbg.commands.misc
 import pwndbg.commands.mprotect
 import pwndbg.commands.next
+import pwndbg.commands.p2p
 import pwndbg.commands.peda
 import pwndbg.commands.pie
 import pwndbg.commands.probeleak
@@ -68,13 +69,13 @@ import pwndbg.elf
 import pwndbg.exception
 import pwndbg.gdbutils.functions
 import pwndbg.heap
-import pwndbg.inthook
 import pwndbg.memory
 import pwndbg.net
 import pwndbg.proc
 import pwndbg.prompt
 import pwndbg.regs
 import pwndbg.stack
+import pwndbg.tempfile
 import pwndbg.typeinfo
 import pwndbg.ui
 import pwndbg.version
@@ -88,6 +89,7 @@ version = __version__
 
 try:
     import unicorn
+
     import pwndbg.emu
 except:
     pass
@@ -113,6 +115,7 @@ __all__ = [
 'malloc',
 'memoize',
 'memory',
+'p2p',
 'proc',
 'regs',
 'remote',
@@ -163,3 +166,6 @@ signal.signal(signal.SIGWINCH, lambda signum, frame: gdb.execute("set width %i" 
 # After GDB gets the fix, we should disable this only for bugged GDB versions.
 if 1:
     gdb.execute('set remote search-memory-packet off')
+
+# Reading Comment file
+pwndbg.commands.comments.init()

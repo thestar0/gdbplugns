@@ -1,22 +1,21 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-from __future__ import unicode_literals
-
 import gdb
 
 import pwndbg.color.message as message
 import pwndbg.events
 import pwndbg.file
 import pwndbg.memoize
+import pwndbg.qemu
 import pwndbg.remote
 
 
 @pwndbg.memoize.reset_on_start
 @pwndbg.memoize.reset_on_exit
 def is_android():
+    if pwndbg.qemu.is_qemu():
+        return False
+
     try:
         if pwndbg.file.get('/system/etc/hosts'):
             return True
