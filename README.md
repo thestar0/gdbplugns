@@ -1,5 +1,4 @@
-# GDB-Plugins
-## 使用
+
 在 pwndbg 文件夹中`git init`初始化一下，然后运行`./setup.sh`安装
 
 想用peda：`echo "source ~/GDB-Plugins/peda/peda.py" > ~/.gdbinit`
