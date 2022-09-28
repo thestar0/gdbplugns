@@ -9,7 +9,6 @@
 想用gef：`echo "source ~/GDB-Plugins/gef/gef.py" > ~/.gdbinit`
 
 想用pwndbg：`echo "source ~/GDB-Plugins/pwndbg/gdbinit.py" > ~/.gdbinit`
-
 ## 参考
 这些工具的github地址：
 
